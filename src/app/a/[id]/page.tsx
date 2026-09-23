@@ -21,7 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
 import { ActivityHeader, Loading, ResultView, useActivity } from "@/components/activity";
-import { DESIRE_BUDGET, type Pref } from "@/lib/assign";
+import { desireBudget, type Pref } from "@/lib/assign";
 import { api, memberKey, storage, type PublicActivity } from "@/lib/client";
 
 interface MySubmission {
@@ -100,9 +100,9 @@ function MyResult({ a, assignment }: { a: PublicActivity; assignment: { roleId: 
 
 // ---------------- 志願填寫 ----------------
 
-function evenSplit(n: number): number[] {
-  const base = Math.floor(DESIRE_BUDGET / n);
-  return Array.from({ length: n }, (_, i) => base + (i < DESIRE_BUDGET - base * n ? 1 : 0));
+function evenSplit(total: number, n: number): number[] {
+  const base = Math.floor(total / n);
+  return Array.from({ length: n }, (_, i) => base + (i < total - base * n ? 1 : 0));
 }
 
 function PrefForm({
@@ -124,7 +124,7 @@ function PrefForm({
   );
   const [desire, setDesire] = useState<Record<string, number>>(() => {
     if (initial) return Object.fromEntries(initial.prefs.map((p) => [p.roleId, p.desire]));
-    const split = evenSplit(a.k);
+    const split = evenSplit(desireBudget(a.roles.length), a.k);
     return Object.fromEntries(a.roles.map((r, i) => [r.id, split[i] ?? 0]));
   });
   const [busy, setBusy] = useState(false);
@@ -136,8 +136,9 @@ function PrefForm({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  const budget = desireBudget(a.roles.length);
   const used = order.reduce((s, rid) => s + (desire[rid] || 0), 0);
-  const left = DESIRE_BUDGET - used;
+  const left = budget - used;
   const roleById = new Map(a.roles.map((r) => [r.id, r]));
 
   const move = (from: number, to: number) => {
@@ -150,11 +151,11 @@ function PrefForm({
       move(order.indexOf(String(e.active.id)), order.indexOf(String(e.over.id)));
   };
   const setD = (rid: string, v: number) => {
-    setDesire((d) => ({ ...d, [rid]: Math.max(0, Math.min(DESIRE_BUDGET, Math.round(v) || 0)) }));
+    setDesire((d) => ({ ...d, [rid]: Math.max(0, Math.min(budget, Math.round(v) || 0)) }));
     setMsg(null);
   };
   const splitTopK = () => {
-    const split = evenSplit(a.k);
+    const split = evenSplit(desireBudget(a.roles.length), a.k);
     setDesire(Object.fromEntries(order.map((rid, i) => [rid, split[i] ?? 0])));
   };
 
@@ -182,8 +183,8 @@ function PrefForm({
       <div>
         <h2 className="font-semibold">{initial ? "修改我的志願" : "填寫我的志願"}</h2>
         <p className="mt-1 text-sm text-muted">
-          拖拉 ⠿ 或用箭頭排序（最上面 = 最想要）。每人有 {DESIRE_BUDGET} 點渴望度可以自由分配：
-          同一輪志願搶同一職位時，點數高的人優先。保證分到你的前 {a.k} 志願之一。
+          拖拉 ⠿ 或用箭頭排序（最上面 = 最想要）。每人有 {budget} 點渴望度可以自由分配：
+          同一輪志願搶同一職位時，點數高的人優先。只要有任何可能，系統都會讓每個人分到自己的前 {a.k} 志願之一。
         </p>
       </div>
 
@@ -215,6 +216,7 @@ function PrefForm({
                   name={roleById.get(rid)?.name ?? rid}
                   dim={i >= a.k}
                   desire={desire[rid] || 0}
+                  budget={budget}
                   onDesire={(v) => setD(rid, v)}
                   onUp={i > 0 ? () => move(i, i - 1) : undefined}
                   onDown={i < order.length - 1 ? () => move(i, i + 1) : undefined}
@@ -232,15 +234,15 @@ function PrefForm({
             <span className={`font-semibold tabular-nums ${left === 0 ? "text-accent" : "text-danger"}`}>
               {left}
             </span>{" "}
-            / {DESIRE_BUDGET}
+            / {budget}
           </span>
           <button type="button" className="text-sm text-accent underline-offset-2 hover:underline" onClick={splitTopK}>
             平均分給前 {a.k} 志願
           </button>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-border">
-          <div className={`h-full transition-all ${used > DESIRE_BUDGET ? "bg-danger" : "bg-accent"}`}
-            style={{ width: `${Math.min(100, (used / DESIRE_BUDGET) * 100)}%` }} />
+          <div className={`h-full transition-all ${used > budget ? "bg-danger" : "bg-accent"}`}
+            style={{ width: `${Math.min(100, (used / budget) * 100)}%` }} />
         </div>
       </div>
 
@@ -264,6 +266,7 @@ function PrefRow(props: {
   name: string;
   dim: boolean;
   desire: number;
+  budget: number;
   onDesire: (v: number) => void;
   onUp?: () => void;
   onDown?: () => void;
@@ -288,7 +291,7 @@ function PrefRow(props: {
           disabled={!props.onDown} onClick={props.onDown} aria-label="下移">▼</button>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <input type="number" inputMode="numeric" min={0} max={DESIRE_BUDGET}
+        <input type="number" inputMode="numeric" min={0} max={props.budget}
           className="input w-16 px-1.5 py-1 text-center tabular-nums"
           value={props.desire} onChange={(e) => props.onDesire(Number(e.target.value))}
           aria-label={`${props.name} 渴望度`} />

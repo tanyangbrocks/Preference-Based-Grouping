@@ -98,9 +98,10 @@ export default function CreatePage() {
                 <input className="input flex-1" required maxLength={40} value={r.name}
                   onChange={(e) => update(r.key, { name: e.target.value })}
                   placeholder={`職位 ${i + 1}，例：美術`} aria-label={`職位 ${i + 1} 名稱`} />
-                <div className="flex w-28 shrink-0 items-center gap-1">
-                  <input type="number" className="input text-center" min={1} max={100} required
-                    value={r.capacity} aria-label="名額"
+                <div className="flex shrink-0 items-center gap-1">
+                  <span className="text-sm text-muted">最多</span>
+                  <input type="number" className="input w-16 px-1.5 text-center" min={1} max={100} required
+                    value={r.capacity} aria-label={`職位 ${i + 1} 最多人數`}
                     onChange={(e) => update(r.key, { capacity: Number(e.target.value) })} />
                   <span className="text-sm text-muted">人</span>
                 </div>
@@ -120,7 +121,8 @@ export default function CreatePage() {
           ＋ 新增職位
         </button>
         <p className="text-xs text-muted">
-          {roles.length} 個職位 → 每個人保證分到自己的前 {k} 志願之一。總名額就是可加入的人數上限。
+          {roles.length} 個職位 → 每人有 {Math.ceil((roles.length * 3) / 2)} 點渴望度；只要有任何可能，每個人都會分到自己的前 {k} 志願之一。
+          同一職位可以多人擔任，「最多 N 人」就是該職位的上限；各職位上限加總就是可加入的人數上限。
         </p>
       </section>
 

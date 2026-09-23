@@ -73,6 +73,8 @@ export async function publicView(a: ActivityRow) {
     seedHash: a.seedHash,
     seed: finalized ? a.seed : null,
     effectiveK: finalized ? a.effectiveK : null,
+    /** 因志願衝突無解而落在前 k 志願之外的人數（不公開是誰） */
+    relaxedCount: finalized && a.result ? a.result.filter((r) => r.rank > acceptableK(a.roles.length)).length : 0,
     result,
   };
 }

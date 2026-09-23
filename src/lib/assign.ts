@@ -31,10 +31,25 @@ export interface AssignResult {
   effectiveK: number;
 }
 
-export const DESIRE_BUDGET = 100;
-
 export function acceptableK(roleCount: number): number {
   return Math.ceil(roleCount / 2);
+}
+
+/** 渴望度總點數 = 職位數 × 3 ÷ 2（奇數時無條件進位） */
+export function desireBudget(roleCount: number): number {
+  return Math.ceil((roleCount * 3) / 2);
+}
+
+/** 只用前 kk 志願時，最多能同時安排幾個人（測試與診斷用） */
+export function maxMatchWithin(roles: RoleSpec[], members: MemberSub[], kk: number): number {
+  const allowed = new Map(
+    members.map((mem) => [
+      mem.id,
+      [...mem.prefs].sort((a, b) => a.rank - b.rank).slice(0, kk).map((p) => p.roleId),
+    ]),
+  );
+  const cap = new Map(roles.map((r) => [r.id, r.capacity]));
+  return new Matcher(allowed).maxSize(members.map((x) => x.id), cap);
 }
 
 // ---------- seeded RNG（平手用，結果可重現）----------
@@ -78,6 +93,16 @@ class Matcher {
 
   /** members 是否能全部排進 remCap（每人只能進自己的 allowed）。回傳匹配或 null */
   match(members: string[], remCap: Map<string, number>): Map<string, string> | null {
+    const { assign, complete } = this.run(members, remCap, true);
+    return complete ? assign : null;
+  }
+
+  /** 最大匹配人數 */
+  maxSize(members: string[], remCap: Map<string, number>): number {
+    return this.run(members, remCap, false).assign.size;
+  }
+
+  private run(members: string[], remCap: Map<string, number>, stopOnFail: boolean) {
     const assign = new Map<string, string>();
     const roleMembers = new Map<string, string[]>();
     for (const r of remCap.keys()) roleMembers.set(r, []);
@@ -104,10 +129,14 @@ class Matcher {
       return false;
     };
 
+    let complete = true;
     for (const u of members) {
-      if (!tryAug(u, new Set())) return null;
+      if (!tryAug(u, new Set())) {
+        complete = false;
+        if (stopOnFail) break;
+      }
     }
-    return assign;
+    return { assign, complete };
   }
 }
 
@@ -137,24 +166,46 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
   const tie = new Map(ids.map((id, i) => [id, i]));
 
   const fullCap = new Map(roles.map((r) => [r.id, r.capacity]));
-  const allowedFor = (kk: number) =>
-    new Map(ids.map((id) => [id, byRank.get(id)!.slice(0, kk).map((p) => p.roleId)]));
 
-  // 找最小可行 K′
-  let effectiveK = k;
-  let matcher = new Matcher(allowedFor(k));
-  while (!matcher.match(ids, fullCap)) {
-    effectiveK++;
-    if (effectiveK > m) throw new Error("無法分配（名額不足）");
-    matcher = new Matcher(allowedFor(effectiveK));
+  // 每人的可接受範圍（前 level[u] 志願）。預設全部 K；無解時只放寬「必要的最少人數」
+  const level = new Map(ids.map((id) => [id, k]));
+  const allowed = new Map<string, string[]>();
+  const setLevel = (u: string, lv: number) => {
+    level.set(u, lv);
+    allowed.set(u, byRank.get(u)!.slice(0, lv).map((p) => p.roleId));
+  };
+  for (const u of ids) setLevel(u, k);
+  const matcher = new Matcher(allowed);
+
+  if (!matcher.match(ids, fullCap)) {
+    // 階段 A：依 seed 隨機順序，逐一嘗試把人收緊到前 K，收不進的先放到不限。
+    // 「能同時落在前 K 的人」構成 transversal matroid，貪心可得最大人數 → 放寬人數最少。
+    for (const u of ids) setLevel(u, m);
+    const relaxed: string[] = [];
+    for (const u of ids) {
+      setLevel(u, k);
+      if (!matcher.match(ids, fullCap)) {
+        setLevel(u, m);
+        relaxed.push(u);
+      }
+    }
+    // 階段 B：被放寬的人也盡量收緊（K+1、K+2…）
+    for (const u of relaxed) {
+      for (let lv = k + 1; lv < m; lv++) {
+        setLevel(u, lv);
+        if (matcher.match(ids, fullCap)) break;
+        setLevel(u, m);
+      }
+    }
   }
+  const effectiveK = Math.max(...level.values());
 
   const remCap = new Map(fullCap);
   const remaining = new Set(ids);
   const result = new Map<string, string>();
 
   for (let round = 1; round <= effectiveK; round++) {
-    const cands = [...remaining].sort((a, b) => {
+    const cands = [...remaining].filter((u) => round <= level.get(u)!).sort((a, b) => {
       const da = byRank.get(a)![round - 1].desire;
       const db = byRank.get(b)![round - 1].desire;
       return db - da || tie.get(a)! - tie.get(b)!;
@@ -193,6 +244,7 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
 
 export function validatePrefs(prefs: Pref[], roleIds: string[]): string | null {
   if (prefs.length !== roleIds.length) return "必須排序所有職位";
+  const budget = desireBudget(roleIds.length);
   const seenRole = new Set<string>();
   const seenRank = new Set<number>();
   let sum = 0;
@@ -203,10 +255,10 @@ export function validatePrefs(prefs: Pref[], roleIds: string[]): string | null {
     if (!Number.isInteger(p.rank) || p.rank < 1 || p.rank > roleIds.length || seenRank.has(p.rank))
       return "志願序不正確";
     seenRank.add(p.rank);
-    if (!Number.isInteger(p.desire) || p.desire < 0 || p.desire > DESIRE_BUDGET)
-      return "渴望度必須是 0～100 的整數";
+    if (!Number.isInteger(p.desire) || p.desire < 0 || p.desire > budget)
+      return `渴望度必須是 0～${budget} 的整數`;
     sum += p.desire;
   }
-  if (sum !== DESIRE_BUDGET) return `渴望度總和必須剛好 ${DESIRE_BUDGET}（目前 ${sum}）`;
+  if (sum !== budget) return `渴望度總和必須剛好 ${budget}（目前 ${sum}）`;
   return null;
 }

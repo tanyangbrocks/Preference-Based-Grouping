@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { acceptableK, assign, validatePrefs, type MemberSub, type RoleSpec } from "./assign";
+import { acceptableK, assign, desireBudget, maxMatchWithin, validatePrefs, type MemberSub, type RoleSpec } from "./assign";
 
 /** order: 志願序的職位 id；desires: 對應的渴望度 */
 function mem(id: string, order: string[], desires?: number[]): MemberSub {
-  const d = desires ?? order.map((_, i) => (i === 0 ? 100 : 0));
+  const d = desires ?? order.map((_, i) => (i === 0 ? desireBudget(order.length) : 0));
   return { id, prefs: order.map((roleId, i) => ({ roleId, rank: i + 1, desire: d[i] })) };
 }
 
@@ -60,16 +60,61 @@ describe("assign", () => {
     expect(roleOf(res, "w")).toBe("D");
   });
 
-  it("無解 → 放寬 K 並標示", () => {
-    const res = assign(roles({ A: 1, B: 1, C: 1, D: 1 }), [
+  it("無解 → 只放寬必要的最少人數", () => {
+    // a、b、c、d 的前 2 志願都是 A/B，但 A、B 各只有 1 個名額 → 必定有 2 人要放寬
+    const ms = [
       mem("a", ["A", "B", "C", "D"]),
       mem("b", ["A", "B", "C", "D"]),
       mem("c", ["B", "A", "C", "D"]),
       mem("d", ["B", "A", "D", "C"]),
-    ], "s");
+    ];
+    const rs = roles({ A: 1, B: 1, C: 1, D: 1 });
+    const res = assign(rs, ms, "s");
     expect(res.k).toBe(2);
-    expect(res.effectiveK).toBe(3);
+    expect(res.assignments.filter((a) => a.rank > 2).length).toBe(2);
     expect(res.assignments.every((a) => a.rank <= 3)).toBe(true);
+  });
+
+  it("無解時只有 1 人需要放寬 → 其他人都不受影響", () => {
+    // 6 職位 → K=3。a/b/c/d 的前 3 志願都是 A/B/C（各 1 名額）→ 只有 1 人放寬
+    // e/f 的前 3 志願是 D/E/F，完全不受影響
+    const rs = roles({ A: 1, B: 1, C: 1, D: 1, E: 1, F: 1 });
+    const ms = [
+      mem("a", ["A", "B", "C", "D", "E", "F"]),
+      mem("b", ["B", "C", "A", "E", "D", "F"]),
+      mem("c", ["C", "A", "B", "F", "E", "D"]),
+      mem("d", ["A", "C", "B", "D", "F", "E"]),
+      mem("e", ["D", "E", "F", "A", "B", "C"]),
+      mem("f", ["E", "D", "F", "A", "B", "C"]),
+    ];
+    for (let t = 0; t < 20; t++) {
+      const res = assign(rs, ms, `seed${t}`);
+      const out = res.assignments.filter((a) => a.rank > 3);
+      expect(out.length).toBe(1);
+      expect(["a", "b", "c", "d"]).toContain(out[0].memberId);
+      expect(out[0].rank).toBe(4); // 放寬也只放寬到第 4 志願
+    }
+  });
+
+  it("多人職位：名額 2 → 渴望度前 2 高的人拿到", () => {
+    const res = assign(roles({ A: 2, B: 1, C: 1 }), [
+      mem("x", ["A", "B", "C"], [4, 1, 0]),
+      mem("y", ["A", "C", "B"], [3, 2, 0]),
+      mem("z", ["A", "B", "C"], [2, 3, 0]),
+      mem("w", ["A", "C", "B"], [1, 4, 0]),
+    ], "s");
+    expect(roleOf(res, "x")).toBe("A");
+    expect(roleOf(res, "y")).toBe("A");
+    expect(roleOf(res, "z")).toBe("B");
+    expect(roleOf(res, "w")).toBe("C");
+  });
+
+  it("多人職位：名額不會超過上限，且人數少於總名額也能分", () => {
+    const res = assign(roles({ A: 3, B: 2 }), [
+      mem("a", ["A", "B"]), mem("b", ["A", "B"]), mem("c", ["A", "B"]), mem("d", ["A", "B"]),
+    ], "s");
+    expect(res.assignments.filter((a) => a.roleId === "A").length).toBe(3);
+    expect(res.assignments.filter((a) => a.roleId === "B").length).toBe(1);
   });
 
   it("人數超過總名額 → 丟錯", () => {
@@ -90,7 +135,7 @@ describe("assign", () => {
       for (let i = 0; i < n; i++) {
         const order = rs.map((r) => r.id).sort(() => rnd() - 0.5);
         const d = order.map(() => 0);
-        let left = 100;
+        let left = desireBudget(m);
         for (let j = 0; j < m - 1; j++) { const v = Math.floor(rnd() * (left + 1)); d[j] = v; left -= v; }
         d[m - 1] += left;
         ms.push(mem(`m${i}`, order, d));
@@ -103,14 +148,21 @@ describe("assign", () => {
         expect(a.rank).toBeLessThanOrEqual(res.effectiveK);
       }
       for (const r of rs) expect(used.get(r.id) ?? 0).toBeLessThanOrEqual(r.capacity);
-      expect(res.effectiveK).toBeGreaterThanOrEqual(acceptableK(m));
+      // 只要存在讓所有人都在前 K 的分法，就一定做到；否則放寬人數 = 理論最小值
+      const k = acceptableK(m);
+      const outside = res.assignments.filter((a) => a.rank > k).length;
+      expect(outside).toBe(n - maxMatchWithin(rs, ms, k));
     }
   });
 });
 
 describe("validatePrefs", () => {
-  const ids = ["A", "B"];
-  it("合法", () => expect(validatePrefs(mem("x", ids, [70, 30]).prefs, ids)).toBeNull());
-  it("總和不是 100", () => expect(validatePrefs(mem("x", ids, [70, 20]).prefs, ids)).toMatch(/100/));
-  it("少排職位", () => expect(validatePrefs(mem("x", ["A"], [100]).prefs, ids)).not.toBeNull());
+  const ids = ["A", "B", "C", "D"]; // 4 職位 → 渴望度總數 6
+  it("總數 = 職位數 × 3 ÷ 2", () => {
+    expect(desireBudget(4)).toBe(6);
+    expect(desireBudget(5)).toBe(8); // 7.5 無條件進位
+  });
+  it("合法", () => expect(validatePrefs(mem("x", ids, [4, 2, 0, 0]).prefs, ids)).toBeNull());
+  it("總和不對", () => expect(validatePrefs(mem("x", ids, [4, 1, 0, 0]).prefs, ids)).toMatch(/6/));
+  it("少排職位", () => expect(validatePrefs(mem("x", ["A"], [6]).prefs, ids)).not.toBeNull());
 });

@@ -84,7 +84,7 @@ export function RoleList({ a }: { a: PublicActivity }) {
               <div className="font-medium">{r.name}</div>
               {r.description && <div className="text-sm text-muted">{r.description}</div>}
             </div>
-            <span className="shrink-0 text-sm text-muted tabular-nums">{r.capacity} 人</span>
+            <span className="shrink-0 text-sm text-muted tabular-nums">最多 {r.capacity} 人</span>
           </li>
         ))}
       </ul>
@@ -99,9 +99,10 @@ export function ResultView({ a, myName }: { a: PublicActivity; myName?: string }
     <section className="card space-y-4">
       <h2 className="font-semibold">分配結果</h2>
       {a.result.length === 0 && <p className="text-sm text-muted">沒有人填寫。</p>}
-      {a.effectiveK !== null && a.effectiveK > a.k && (
+      {a.relaxedCount > 0 && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm">
-          因志願衝突無法讓所有人都落在前 {a.k} 志願，本次放寬至前 {a.effectiveK} 志願。
+          大家的志願衝突到不可能讓所有人都落在前 {a.k} 志願，系統已把放寬的人數降到最少：
+          {a.relaxedCount} 人（隨機決定）分到前 {a.k} 志願之外。
         </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
