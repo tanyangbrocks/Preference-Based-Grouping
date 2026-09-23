@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { customAlphabet } from "nanoid";
 import { acceptableK, assign } from "./assign";
-import { getStore, type ActivityRow } from "./store";
+import { getStore, StoreConfigError, type ActivityRow } from "./store";
 
 export const newId = customAlphabet("23456789abcdefghijkmnpqrstuvwxyz", 10);
 export const newToken = () => randomBytes(24).toString("base64url");
@@ -23,7 +23,11 @@ export class HttpError extends Error {
 
 export function errorResponse(e: unknown) {
   if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status });
+  if (e instanceof StoreConfigError) return Response.json({ error: e.message }, { status: 503 });
   console.error(e);
+  const name = (e as Error)?.name ?? "";
+  if (/Neon|Postgres|fetch/i.test(name) || /database|connect|ECONN|fetch failed/i.test(String((e as Error)?.message)))
+    return Response.json({ error: "資料庫連線失敗，請稍後再試（主辦方可到 /api/health 檢查設定）" }, { status: 503 });
   return Response.json({ error: "伺服器錯誤" }, { status: 500 });
 }
 
@@ -72,6 +76,7 @@ export async function publicView(a: ActivityRow) {
     status: a.status,
     seedHash: a.seedHash,
     seed: finalized ? a.seed : null,
+    editedAt: a.editedAt ?? null,
     effectiveK: finalized ? a.effectiveK : null,
     /** 因志願衝突無解而落在前 k 志願之外的人數（不公開是誰） */
     relaxedCount: finalized && a.result ? a.result.filter((r) => r.rank > acceptableK(a.roles.length)).length : 0,

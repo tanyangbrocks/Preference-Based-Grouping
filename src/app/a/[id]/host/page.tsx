@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import QRCode from "qrcode";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityHeader, Loading, ResultView, RoleList, useActivity } from "@/components/activity";
-import { hostKey, storage } from "@/lib/client";
+import { ActivityForm } from "@/components/activity-form";
+import { api, ApiError, hostKey, storage, type PublicActivity } from "@/lib/client";
 import { RevealCard } from "@/components/motion";
 
 const noopSubscribe = () => () => {};
@@ -38,7 +39,8 @@ export default function HostPage() {
 }
 
 function HostDashboard({ id, token }: { id: string; token: string }) {
-  const { data: a, error, remaining } = useActivity(`/api/activities/${id}/host`, { "x-host-token": token });
+  const { data: a, error, remaining, reload } = useActivity(`/api/activities/${id}/host`, { "x-host-token": token });
+  const [editing, setEditing] = useState(false);
   const origin = useSyncExternalStore(
     noopSubscribe,
     () => location.origin,
@@ -49,9 +51,26 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
   const inviteUrl = `${origin}/a/${id}`;
   const hostUrl = `${origin}/a/${id}/host#t=${token}`;
 
+  const open = a.status === "open" && (remaining ?? 1) > 0;
+
+  if (editing && open) {
+    return (
+      <div className="space-y-5">
+        <h1 className="text-2xl font-semibold text-accent">編輯活動</h1>
+        <EditForm a={a} token={token} onDone={() => { setEditing(false); reload(); }}
+          onCancel={() => setEditing(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <ActivityHeader a={a} remaining={remaining} />
+      {open && (
+        <button type="button" className="btn btn-ghost w-full" onClick={() => setEditing(true)}>
+          ✎ 編輯活動（截止時間、職位、人數上限…）
+        </button>
+      )}
       {a.status === "finalized" ? <ResultView a={a} /> : <Share inviteUrl={inviteUrl} title={a.title} />}
       <RoleList a={a} />
       <RevealCard index={3} className="space-y-2 text-sm">
@@ -65,6 +84,47 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
         主辦方只看得到填寫人數，看不到任何人的志願，也無法修改或重新分配。
       </p>
     </div>
+  );
+}
+
+function EditForm({ a, token, onDone, onCancel }: {
+  a: PublicActivity;
+  token: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const save = (values: object, resetSubmissions = false) =>
+    api(`/api/activities/${a.id}/host`, {
+      method: "PATCH",
+      headers: { "x-host-token": token },
+      body: JSON.stringify({ ...values, resetSubmissions }),
+    });
+
+  return (
+    <ActivityForm
+      initial={{ title: a.title, description: a.description, deadline: a.deadline, roles: a.roles }}
+      submitLabel="儲存修改"
+      busyLabel="儲存中…"
+      onCancel={onCancel}
+      notice={a.submissionCount > 0 && (
+        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm">
+          已有 {a.submissionCount} 人填寫。修改名稱、說明、人數上限不影響已填的志願；
+          <strong>新增或刪除職位</strong>會清除所有人的志願，大家需要重新填寫。
+        </p>
+      )}
+      onSubmit={async (values) => {
+        try {
+          await save(values);
+        } catch (e) {
+          if (!(e instanceof ApiError) || !e.data.needsReset) throw e;
+          if (!window.confirm(`${e.message}
+
+確定要儲存並清除所有人的填寫嗎？`)) return;
+          await save(values, true);
+        }
+        onDone();
+      }}
+    />
   );
 }
 

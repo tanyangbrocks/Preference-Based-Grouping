@@ -70,6 +70,9 @@ export function ActivityHeader({ a, remaining }: { a: PublicActivity; remaining:
           <dd className="tabular-nums">{a.submissionCount} / {a.capacity} 人</dd>
         </div>
       </dl>
+      {a.editedAt && a.status !== "finalized" && (
+        <p className="text-xs text-muted">主辦方於 {formatDeadline(a.editedAt)} 修改過活動內容</p>
+      )}
     </RevealCard>
   );
 }
@@ -86,7 +89,7 @@ export function RoleList({ a }: { a: PublicActivity }) {
               <div className="font-medium">{r.name}</div>
               {r.description && <div className="text-sm text-muted">{r.description}</div>}
             </div>
-            <span className="shrink-0 text-sm text-muted tabular-nums">最多 {r.capacity} 人</span>
+            <span className="shrink-0 text-sm text-muted tabular-nums">人數上限 {r.capacity}</span>
           </RevealItem>
         ))}
       </div>

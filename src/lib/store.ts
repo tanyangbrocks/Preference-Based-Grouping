@@ -26,8 +26,20 @@ export interface ActivityRow {
   effectiveK: number | null;
   result: Assignment[] | null; // memberId = submission id
   createdAt: string;
+  /** 主辦方最後一次修改活動的時間（公開顯示，讓組員知道活動被改過） */
+  editedAt: string | null;
   roles: RoleRow[];
 }
+
+export interface ActivityEdit {
+  title: string;
+  description: string;
+  deadline: string;
+  roles: RoleRow[];
+}
+
+/** 資料庫未設定或連不上：回給使用者看得懂的訊息 */
+export class StoreConfigError extends Error {}
 
 export interface SubmissionRow {
   id: string;
@@ -51,6 +63,10 @@ export interface Store {
   /** open → finalizing（或搶回卡住超過 60 秒的 finalizing）。搶到回 true */
   claimFinalize(activityId: string): Promise<boolean>;
   saveResult(activityId: string, result: Assignment[], effectiveK: number): Promise<void>;
+  /** 只在 open 且未截止時成功；resetSubmissions 會一併刪除所有填寫。成功回 true */
+  updateActivity(id: string, edit: ActivityEdit, resetSubmissions: boolean): Promise<boolean>;
+  /** 健康檢查：確認連得上 */
+  ping(): Promise<void>;
 }
 
 const STALE_MS = 60_000;
@@ -93,6 +109,7 @@ class PgStore implements Store {
         UNIQUE (activity_id, display_name)
       )`;
       await sql`CREATE INDEX IF NOT EXISTS submissions_token ON submissions(activity_id, member_token_hash)`;
+      await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS edited_at timestamptz`;
     })().catch((e) => {
       this.ready = null;
       throw e;
@@ -126,6 +143,7 @@ class PgStore implements Store {
       effectiveK: r.effective_k,
       result: r.result,
       createdAt: new Date(r.created_at).toISOString(),
+      editedAt: r.edited_at ? new Date(r.edited_at).toISOString() : null,
       roles: r.roles,
     } as ActivityRow;
   }
@@ -184,6 +202,27 @@ class PgStore implements Store {
         AND (status = 'open' OR (status = 'finalizing' AND finalizing_at < ${stale}))
       RETURNING id`;
     return rows.length > 0;
+  }
+
+  async updateActivity(id: string, e: ActivityEdit, resetSubmissions: boolean) {
+    await this.ensure();
+    // 單一語句（data-modifying CTE）：活動仍可編輯才更新，且只有更新成功才清除填寫
+    const rows = await this.sql`
+      WITH upd AS (
+        UPDATE activities SET title = ${e.title}, description = ${e.description},
+          deadline = ${e.deadline}, roles = ${JSON.stringify(e.roles)}, edited_at = now()
+        WHERE id = ${id} AND status = 'open' AND deadline > now()
+        RETURNING id
+      ), del AS (
+        DELETE FROM submissions WHERE ${resetSubmissions}::boolean AND activity_id IN (SELECT id FROM upd)
+      )
+      SELECT id FROM upd`;
+    return rows.length > 0;
+  }
+
+  async ping() {
+    await this.ensure();
+    await this.sql`SELECT 1`;
   }
 
   async saveResult(activityId: string, result: Assignment[], effectiveK: number) {
@@ -272,6 +311,16 @@ class FileStore implements Store {
       return true;
     }, true);
   }
+  updateActivity(id: string, e: ActivityEdit, resetSubmissions: boolean) {
+    return this.tx((db) => {
+      const a = db.activities[id];
+      if (!a || a.status !== "open" || Date.parse(a.deadline) <= Date.now()) return false;
+      Object.assign(a, e, { editedAt: new Date().toISOString() });
+      if (resetSubmissions) db.submissions = db.submissions.filter((s) => s.activityId !== id);
+      return true;
+    }, true);
+  }
+  async ping() {}
   saveResult(activityId: string, result: Assignment[], effectiveK: number) {
     return this.tx((db) => {
       const a = db.activities[activityId];
@@ -285,13 +334,27 @@ class FileStore implements Store {
 
 let instance: Store | null = null;
 
+/** Vercel 接 Neon 時依設定的前綴不同，變數名稱可能是這幾種 */
+export function databaseUrl(): string | undefined {
+  const env = process.env;
+  return (
+    env.DATABASE_URL ||
+    env.POSTGRES_URL ||
+    env.STORAGE_URL ||
+    Object.entries(env).find(([k, v]) => v && /_(DATABASE|POSTGRES)_URL$/.test(k))?.[1]
+  );
+}
+
 export function getStore(): Store {
   if (instance) return instance;
-  const url = process.env.DATABASE_URL;
+  const url = databaseUrl();
   if (url) {
     instance = new PgStore(url);
   } else {
-    if (process.env.VERCEL) throw new Error("未設定 DATABASE_URL");
+    if (process.env.VERCEL)
+      throw new StoreConfigError(
+        "網站尚未連接資料庫：請到 Vercel 專案的 Storage 分頁建立 Neon 資料庫並 Connect，然後 Redeploy",
+      );
     instance = new FileStore();
   }
   return instance;
