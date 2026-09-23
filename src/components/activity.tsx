@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, formatDeadline, formatRemaining, useRemaining, type PublicActivity } from "@/lib/client";
+import { RevealCard, RevealItem } from "./motion";
 
 /** 讀取活動；截止或結算中時自動重新整理 */
 export function useActivity(url: string, headers?: Record<string, string>) {
@@ -47,7 +48,7 @@ export function useActivity(url: string, headers?: Record<string, string>) {
 export function ActivityHeader({ a, remaining }: { a: PublicActivity; remaining: number | null }) {
   const open = a.status !== "finalized" && (remaining ?? 1) > 0;
   return (
-    <section className="card space-y-3">
+    <RevealCard float className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
           open ? "bg-accent-soft text-accent" : "bg-border text-muted"}`}>
@@ -57,7 +58,7 @@ export function ActivityHeader({ a, remaining }: { a: PublicActivity; remaining:
           <span className="text-xs text-muted tabular-nums">{formatRemaining(remaining)}</span>
         )}
       </div>
-      <h1 className="text-2xl font-semibold leading-tight">{a.title}</h1>
+      <h1 className="text-2xl font-semibold leading-tight text-accent">{a.title}</h1>
       {a.description && <p className="whitespace-pre-wrap text-sm leading-relaxed">{a.description}</p>}
       <dl className="grid grid-cols-2 gap-3 border-t border-border pt-3 text-sm">
         <div>
@@ -69,26 +70,27 @@ export function ActivityHeader({ a, remaining }: { a: PublicActivity; remaining:
           <dd className="tabular-nums">{a.submissionCount} / {a.capacity} 人</dd>
         </div>
       </dl>
-    </section>
+    </RevealCard>
   );
 }
 
 export function RoleList({ a }: { a: PublicActivity }) {
   return (
-    <section className="card">
-      <h2 className="mb-3 font-semibold">職位</h2>
-      <ul className="divide-y divide-border">
-        {a.roles.map((r) => (
-          <li key={r.id} className="flex items-baseline justify-between gap-3 py-2">
+    <RevealCard index={2}>
+      <h2 className="mb-3 font-semibold text-accent">職位</h2>
+      <div className="space-y-2">
+        {a.roles.map((r, i) => (
+          <RevealItem key={r.id} index={i}
+            className="flex items-baseline justify-between gap-3 rounded-xl border border-border bg-field/60 px-3 py-2">
             <div>
               <div className="font-medium">{r.name}</div>
               {r.description && <div className="text-sm text-muted">{r.description}</div>}
             </div>
             <span className="shrink-0 text-sm text-muted tabular-nums">最多 {r.capacity} 人</span>
-          </li>
+          </RevealItem>
         ))}
-      </ul>
-    </section>
+      </div>
+    </RevealCard>
   );
 }
 
@@ -96,8 +98,8 @@ export function ResultView({ a, myName }: { a: PublicActivity; myName?: string }
   if (!a.result) return null;
   const byRole = a.roles.map((r) => ({ ...r, members: a.result!.filter((x) => x.roleId === r.id) }));
   return (
-    <section className="card space-y-4">
-      <h2 className="font-semibold">分配結果</h2>
+    <RevealCard index={1} className="space-y-4">
+      <h2 className="font-semibold text-accent">分配結果</h2>
       {a.result.length === 0 && <p className="text-sm text-muted">沒有人填寫。</p>}
       {a.relaxedCount > 0 && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm">
@@ -106,8 +108,8 @@ export function ResultView({ a, myName }: { a: PublicActivity; myName?: string }
         </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        {byRole.map((r) => (
-          <div key={r.id} className="rounded-xl border border-border p-3">
+        {byRole.map((r, i) => (
+          <RevealItem key={r.id} index={i} className="rounded-xl border border-border bg-field/60 p-3">
             <div className="mb-2 flex items-baseline justify-between">
               <span className="font-medium">{r.name}</span>
               <span className="text-xs text-muted tabular-nums">{r.members.length} / {r.capacity}</span>
@@ -124,11 +126,11 @@ export function ResultView({ a, myName }: { a: PublicActivity; myName?: string }
                 ))}
               </ul>
             )}
-          </div>
+          </RevealItem>
         ))}
       </div>
       <Fairness a={a} />
-    </section>
+    </RevealCard>
   );
 }
 

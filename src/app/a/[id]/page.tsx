@@ -22,6 +22,7 @@ import { useParams } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
 import { ActivityHeader, Loading, ResultView, useActivity } from "@/components/activity";
 import { desireBudget, type Pref } from "@/lib/assign";
+import { Pop, RevealCard } from "@/components/motion";
 import { api, memberKey, storage, type PublicActivity } from "@/lib/client";
 
 interface MySubmission {
@@ -90,11 +91,11 @@ export default function MemberPage() {
 function MyResult({ a, assignment }: { a: PublicActivity; assignment: { roleId: string; rank: number } }) {
   const role = a.roles.find((r) => r.id === assignment.roleId);
   return (
-    <section className="card border-accent bg-accent-soft text-center">
+    <Pop className="card border-accent bg-accent-soft text-center">
       <p className="text-sm text-muted">你被分配到</p>
       <p className="my-1 text-3xl font-semibold text-accent">{role?.name}</p>
       <p className="text-sm">你的第 {assignment.rank} 志願</p>
-    </section>
+    </Pop>
   );
 }
 
@@ -179,9 +180,9 @@ function PrefForm({
   }
 
   return (
-    <section className="card space-y-5">
+    <RevealCard index={1} className="space-y-5">
       <div>
-        <h2 className="font-semibold">{initial ? "修改我的志願" : "填寫我的志願"}</h2>
+        <h2 className="font-semibold text-accent">{initial ? "修改我的志願" : "填寫我的志願"}</h2>
         <p className="mt-1 text-sm text-muted">
           拖拉 ⠿ 或用箭頭排序（最上面 = 最想要）。每人有 {budget} 點渴望度可以自由分配：
           同一輪志願搶同一職位時，點數高的人優先。只要有任何可能，系統都會讓每個人分到自己的前 {a.k} 志願之一。
@@ -256,7 +257,7 @@ function PrefForm({
         disabled={busy || left !== 0 || (!initial && !name.trim())} onClick={save}>
         {busy ? "送出中…" : left !== 0 ? `渴望度還差 ${left} 點` : initial ? "更新志願" : "送出志願"}
       </button>
-    </section>
+    </RevealCard>
   );
 }
 
@@ -276,9 +277,9 @@ function PrefRow(props: {
   return (
     <li ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`flex items-center gap-2 rounded-xl border bg-surface p-2 ${
+      className={`flex items-center gap-2 rounded-xl border bg-field p-2 ${
         isDragging ? "relative z-10 border-accent shadow-lg" : "border-border"} ${props.dim ? "opacity-60" : ""}`}>
-      <button ref={setActivatorNodeRef} type="button" {...attributes} {...listeners}
+      <button ref={setActivatorNodeRef} type="button" data-drag-handle {...attributes} {...listeners}
         className="cursor-grab touch-none px-1 text-lg text-muted active:cursor-grabbing" aria-label={`拖拉排序 ${props.name}`}>
         ⠿
       </button>

@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityHeader, Loading, ResultView, RoleList, useActivity } from "@/components/activity";
 import { hostKey, storage } from "@/lib/client";
+import { RevealCard } from "@/components/motion";
 
 const noopSubscribe = () => () => {};
 
@@ -53,13 +54,13 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
       <ActivityHeader a={a} remaining={remaining} />
       {a.status === "finalized" ? <ResultView a={a} /> : <Share inviteUrl={inviteUrl} title={a.title} />}
       <RoleList a={a} />
-      <section className="card space-y-2 text-sm">
-        <h2 className="font-semibold">主辦方後台連結</h2>
+      <RevealCard index={3} className="space-y-2 text-sm">
+        <h2 className="font-semibold text-accent">主辦方後台連結</h2>
         <p className="text-muted">
           這個瀏覽器已經記住你的主辦方身分。如果要在其他裝置回到這個後台，請保存下面的連結，不要分享給組員。
         </p>
         <CopyField value={hostUrl} />
-      </section>
+      </RevealCard>
       <p className="text-center text-xs text-muted">
         主辦方只看得到填寫人數，看不到任何人的志願，也無法修改或重新分配。
       </p>
@@ -77,13 +78,13 @@ function Share({ inviteUrl, title }: { inviteUrl: string; title: string }) {
   const canShare = typeof navigator !== "undefined" && "share" in navigator;
 
   return (
-    <section className="card space-y-4">
-      <h2 className="font-semibold">邀請組員</h2>
+    <RevealCard index={1} className="space-y-4">
+      <h2 className="font-semibold text-accent">邀請組員</h2>
       <CopyField value={inviteUrl} />
       {qr && (
         <div className="flex flex-col items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qr} alt="邀請連結 QR code" className="h-56 w-56 rounded-xl border border-border bg-white" />
+          <img src={qr} alt="邀請連結 QR code" className="h-56 w-56 rounded-xl border border-border bg-white transition-transform duration-300 hover:scale-105" />
           <div className="flex gap-2">
             <a className="btn btn-ghost" href={qr} download={`${title}-QR.png`}>下載 QR code</a>
             {canShare && (
@@ -95,7 +96,7 @@ function Share({ inviteUrl, title }: { inviteUrl: string; title: string }) {
           </div>
         </div>
       )}
-    </section>
+    </RevealCard>
   );
 }
 
