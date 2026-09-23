@@ -1,69 +1,134 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { api, hostKey, storage } from "@/lib/client";
+
+interface RoleDraft {
+  key: number;
+  name: string;
+  description: string;
+  capacity: number;
+}
+
+function defaultDeadline() {
+  const d = new Date(Date.now() + 3 * 86400_000);
+  d.setHours(23, 59, 0, 0);
+  const p = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+let nextKey = 0;
+const blankRole = (name = ""): RoleDraft => ({ key: nextKey++, name, description: "", capacity: 1 });
+
+export default function CreatePage() {
+  const router = useRouter();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [deadline, setDeadline] = useState(defaultDeadline);
+  const [roles, setRoles] = useState<RoleDraft[]>(() => [blankRole(), blankRole(), blankRole()]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const totalCap = roles.reduce((s, r) => s + (Number(r.capacity) || 0), 0);
+  const k = Math.ceil(roles.length / 2);
+
+  const update = (key: number, patch: Partial<RoleDraft>) =>
+    setRoles((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api<{ id: string; hostToken: string }>("/api/activities", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          description,
+          deadline: new Date(deadline).toISOString(),
+          roles: roles.map(({ name, description, capacity }) => ({ name, description, capacity })),
+        }),
+      });
+      storage.set(hostKey(res.id), res.hostToken);
+      router.push(`/a/${res.id}/host#t=${res.hostToken}`);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <form onSubmit={submit} className="space-y-5">
+      <div>
+        <h1 className="text-2xl font-semibold">發起分組活動</h1>
+        <p className="mt-1 text-sm text-muted">
+          組員會排出各職位的志願序並分配渴望度，截止後系統自動分配。你看不到任何人的填寫內容，也無法更改結果。
+        </p>
+      </div>
+
+      <section className="card space-y-4">
+        <div>
+          <label className="label" htmlFor="title">活動名稱</label>
+          <input id="title" className="input" required maxLength={100} value={title}
+            onChange={(e) => setTitle(e.target.value)} placeholder="例：期末專題分工" />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div>
+          <label className="label" htmlFor="desc">敘述</label>
+          <textarea id="desc" className="input min-h-24" maxLength={2000} value={description}
+            onChange={(e) => setDescription(e.target.value)} placeholder="活動內容、各職位要做的事…" />
         </div>
-      </main>
-    </div>
+        <div>
+          <label className="label" htmlFor="deadline">填寫截止時間</label>
+          <input id="deadline" type="datetime-local" className="input" required value={deadline}
+            onChange={(e) => setDeadline(e.target.value)} />
+          <p className="mt-1 text-xs text-muted">建立後無法修改</p>
+        </div>
+      </section>
+
+      <section className="card space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-semibold">職位</h2>
+          <span className="text-sm text-muted">總名額 {totalCap} 人</span>
+        </div>
+        <ul className="space-y-3">
+          {roles.map((r, i) => (
+            <li key={r.key} className="rounded-xl border border-border p-3">
+              <div className="flex gap-2">
+                <input className="input flex-1" required maxLength={40} value={r.name}
+                  onChange={(e) => update(r.key, { name: e.target.value })}
+                  placeholder={`職位 ${i + 1}，例：美術`} aria-label={`職位 ${i + 1} 名稱`} />
+                <div className="flex w-28 shrink-0 items-center gap-1">
+                  <input type="number" className="input text-center" min={1} max={100} required
+                    value={r.capacity} aria-label="名額"
+                    onChange={(e) => update(r.key, { capacity: Number(e.target.value) })} />
+                  <span className="text-sm text-muted">人</span>
+                </div>
+                <button type="button" className="btn btn-ghost px-3" disabled={roles.length <= 2}
+                  onClick={() => setRoles((rs) => rs.filter((x) => x.key !== r.key))} aria-label="刪除職位">
+                  ✕
+                </button>
+              </div>
+              <input className="input mt-2 text-sm" maxLength={200} value={r.description}
+                onChange={(e) => update(r.key, { description: e.target.value })}
+                placeholder="說明（選填）" aria-label={`職位 ${i + 1} 說明`} />
+            </li>
+          ))}
+        </ul>
+        <button type="button" className="btn btn-ghost w-full" disabled={roles.length >= 20}
+          onClick={() => setRoles((rs) => [...rs, blankRole()])}>
+          ＋ 新增職位
+        </button>
+        <p className="text-xs text-muted">
+          {roles.length} 個職位 → 每個人保證分到自己的前 {k} 志願之一。總名額就是可加入的人數上限。
+        </p>
+      </section>
+
+      {error && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-danger">{error}</p>}
+
+      <button type="submit" className="btn btn-primary w-full py-3 text-base" disabled={busy}>
+        {busy ? "建立中…" : "建立活動並取得邀請連結"}
+      </button>
+    </form>
   );
 }
