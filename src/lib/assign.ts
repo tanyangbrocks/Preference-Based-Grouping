@@ -23,8 +23,20 @@ export interface Assignment {
   rank: number;
 }
 
+/** 分配過程中值得讓主辦方知道的事件 */
+export type AssignEvent =
+  /** 同一輪、同一職位、渴望度相同，名額不夠 → 依 seed 抽籤決定 */
+  | { type: "tie"; round: number; roleId: string; desire: number; winners: string[]; losers: string[] }
+  /** 本來搶得到這個志願，但給了他會讓別人落到可接受範圍之外 → 讓位 */
+  | { type: "yield"; round: number; roleId: string; memberId: string; desire: number }
+  /** 志願衝突無解：這些人（依 seed 隨機選出、人數已是最少）被放寬到前 K 志願之外 */
+  | { type: "relax"; k: number; memberIds: string[] }
+  /** 逐輪分配後仍未分到，由保底匹配安排（理論上極少發生） */
+  | { type: "fallback"; memberIds: string[] };
+
 export interface AssignResult {
   assignments: Assignment[];
+  events: AssignEvent[];
   /** 原本的可接受範圍 ⌈m/2⌉ */
   k: number;
   /** 實際使用的範圍；> k 代表因志願衝突放寬 */
@@ -149,7 +161,7 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
   if (members.length > totalCap) {
     throw new Error(`人數 ${members.length} 超過總名額 ${totalCap}`);
   }
-  if (members.length === 0) return { assignments: [], k, effectiveK: k };
+  if (members.length === 0) return { assignments: [], events: [], k, effectiveK: k };
 
   const byRank = new Map<string, Pref[]>(); // member → prefs sorted by rank
   for (const mem of members) {
@@ -199,6 +211,9 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
     }
   }
   const effectiveK = Math.max(...level.values());
+  const events: AssignEvent[] = [];
+  const relaxedIds = ids.filter((u) => level.get(u)! > k);
+  if (relaxedIds.length) events.push({ type: "relax", k, memberIds: relaxedIds });
 
   const remCap = new Map(fullCap);
   const remaining = new Set(ids);
@@ -210,19 +225,37 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
       const db = byRank.get(b)![round - 1].desire;
       return db - da || tie.get(a)! - tie.get(b)!;
     });
+    const won = new Map<string, { u: string; d: number }[]>(); // 本輪各職位得主
+    const full: { u: string; r: string; d: number }[] = []; // 本輪因名額已滿落選
     for (const u of cands) {
-      const r = byRank.get(u)![round - 1].roleId;
+      const { roleId: r, desire: d } = byRank.get(u)![round - 1];
       const cap = remCap.get(r)!;
-      if (cap === 0) continue;
+      if (cap === 0) {
+        full.push({ u, r, d });
+        continue;
+      }
       remCap.set(r, cap - 1);
       remaining.delete(u);
       if (matcher.match([...remaining], remCap)) {
         result.set(u, r);
+        won.set(r, [...(won.get(r) ?? []), { u, d }]);
       } else {
         remCap.set(r, cap);
         remaining.add(u);
+        events.push({ type: "yield", round, roleId: r, memberId: u, desire: d });
       }
     }
+    // 抽籤：落選者和本輪某位得主押了相同點數
+    const ties = new Map<string, { roleId: string; desire: number; winners: string[]; losers: string[] }>();
+    for (const { u, r, d } of full) {
+      const same = (won.get(r) ?? []).filter((w) => w.d === d);
+      if (!same.length) continue;
+      const key = `${r}|${d}`;
+      const t = ties.get(key) ?? { roleId: r, desire: d, winners: same.map((w) => w.u), losers: [] };
+      t.losers.push(u);
+      ties.set(key, t);
+    }
+    for (const t of ties.values()) events.push({ type: "tie", round, ...t });
   }
 
   // 保底：理論上很少發生；invariant 保證一定匹配得到
@@ -230,6 +263,7 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
     const rest = [...remaining].sort((a, b) => tie.get(a)! - tie.get(b)!);
     const fin = matcher.match(rest, remCap)!;
     for (const [u, r] of fin) result.set(u, r);
+    events.push({ type: "fallback", memberIds: rest });
   }
 
   const assignments = ids.map((id) => {
@@ -237,7 +271,7 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
     const rank = byRank.get(id)!.find((p) => p.roleId === roleId)!.rank;
     return { memberId: id, roleId, rank };
   });
-  return { assignments, k, effectiveK };
+  return { assignments, events, k, effectiveK };
 }
 
 // ---------- 輸入驗證（前後端共用）----------

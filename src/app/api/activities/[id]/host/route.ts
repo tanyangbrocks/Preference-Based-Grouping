@@ -1,5 +1,5 @@
 import { parseActivityInput, type ActivityInput } from "@/lib/activity-input";
-import { errorResponse, HttpError, isPastDeadline, loadActivity, publicView, tokenMatches } from "@/lib/service";
+import { errorResponse, hostDetail, HttpError, isPastDeadline, loadActivity, publicView, tokenMatches } from "@/lib/service";
 import { getStore } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -11,11 +11,12 @@ async function authorize(req: Request, id: string) {
   return a;
 }
 
-// 主辦方驗證：回傳內容與公開資訊相同（主辦方看不到任何人的志願）
+// 主辦方驗證：公開資訊 + 結算後的分組明細（分到第幾志願、該志願押注、過程事件；不含其他志願排序）
 export async function GET(req: Request, ctx: RouteContext<"/api/activities/[id]/host">) {
   try {
     const { id } = await ctx.params;
-    return Response.json(await publicView(await authorize(req, id)));
+    const a = await authorize(req, id);
+    return Response.json({ ...(await publicView(a)), detail: await hostDetail(a) });
   } catch (e) {
     return errorResponse(e);
   }

@@ -6,7 +6,8 @@ import QRCode from "qrcode";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityHeader, Loading, ResultView, RoleList, useActivity } from "@/components/activity";
 import { ActivityForm } from "@/components/activity-form";
-import { api, ApiError, hostKey, storage, type PublicActivity } from "@/lib/client";
+import { HostDetailView } from "@/components/host-detail";
+import { api, ApiError, hostKey, storage, type HostDetail, type PublicActivity } from "@/lib/client";
 import { RevealCard } from "@/components/motion";
 
 const noopSubscribe = () => () => {};
@@ -52,6 +53,7 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
   const hostUrl = `${origin}/a/${id}/host#t=${token}`;
 
   const open = a.status === "open" && (remaining ?? 1) > 0;
+  const detail = (a as PublicActivity & { detail?: HostDetail | null }).detail;
 
   if (editing && open) {
     return (
@@ -72,6 +74,7 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
         </button>
       )}
       {a.status === "finalized" ? <ResultView a={a} /> : <Share inviteUrl={inviteUrl} title={a.title} />}
+      {detail && <HostDetailView a={a} detail={detail} />}
       <RoleList a={a} />
       <RevealCard index={3} className="space-y-2 text-sm">
         <h2 className="font-semibold text-accent">主辦方後台連結</h2>
@@ -81,7 +84,7 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
         <CopyField value={hostUrl} />
       </RevealCard>
       <p className="text-center text-xs text-muted">
-        主辦方只看得到填寫人數，看不到任何人的志願，也無法修改或重新分配。
+        截止前主辦方只看得到填寫人數；結算後可看到每人分到第幾志願與該志願的押注。任何時候都無法修改或重新分配結果。
       </p>
     </div>
   );

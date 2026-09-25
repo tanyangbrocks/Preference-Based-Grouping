@@ -21,6 +21,7 @@ export async function POST(req: Request) {
       finalizingAt: null,
       effectiveK: null,
       result: null,
+      events: null,
       createdAt: new Date().toISOString(),
       editedAt: null,
     });

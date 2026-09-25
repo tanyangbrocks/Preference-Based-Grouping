@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { customAlphabet } from "nanoid";
-import { acceptableK, assign } from "./assign";
+import { acceptableK, assign, desireBudget } from "./assign";
 import { getStore, StoreConfigError, type ActivityRow } from "./store";
 
 export const newId = customAlphabet("23456789abcdefghijkmnpqrstuvwxyz", 10);
@@ -44,7 +44,7 @@ export async function finalizeIfDue(a: ActivityRow): Promise<ActivityRow> {
       subs.map((s) => ({ id: s.id, prefs: s.prefs })),
       a.seed,
     );
-    await store.saveResult(a.id, res.assignments, res.effectiveK);
+    await store.saveResult(a.id, res.assignments, res.effectiveK, res.events);
   }
   return (await store.getActivity(a.id))!;
 }
@@ -91,3 +91,44 @@ export async function loadActivity(id: string): Promise<ActivityRow> {
   if (!a) throw new HttpError(404, "找不到這個活動");
   return finalizeIfDue(a);
 }
+
+/**
+ * 主辦方專用的分組明細（只在結算後提供）：
+ * 每人分到第幾志願、在該志願押了幾點，以及抽籤／讓位／放寬事件。
+ * 不含任何人其他志願的排序。
+ */
+export async function hostDetail(a: ActivityRow) {
+  if (a.status !== "finalized" || !a.result) return null;
+  const subs = await getStore().listSubmissions(a.id);
+  const byId = new Map(subs.map((s) => [s.id, s]));
+  const name = (id: string) => byId.get(id)?.displayName ?? "?";
+  const k = acceptableK(a.roles.length);
+  const relaxed = new Set(a.events?.flatMap((e) => (e.type === "relax" ? e.memberIds : [])) ?? []);
+
+  const rows = a.result
+    .map((r) => ({
+      name: name(r.memberId),
+      roleId: r.roleId,
+      rank: r.rank,
+      desire: byId.get(r.memberId)?.prefs.find((p) => p.roleId === r.roleId)?.desire ?? 0,
+      outsideK: r.rank > k,
+      relaxed: relaxed.has(r.memberId),
+    }))
+    .sort((x, y) => x.rank - y.rank || x.name.localeCompare(y.name, "zh-Hant"));
+
+  const events = (a.events ?? []).map((e) => {
+    switch (e.type) {
+      case "tie":
+        return { ...e, winners: e.winners.map(name), losers: e.losers.map(name) };
+      case "yield":
+        return { ...e, memberId: name(e.memberId) };
+      case "relax":
+      case "fallback":
+        return { ...e, memberIds: e.memberIds.map(name) };
+    }
+  });
+
+  return { budget: desireBudget(a.roles.length), k, rows, events, hasEventLog: a.events !== null };
+}
+
+export type HostDetail = NonNullable<Awaited<ReturnType<typeof hostDetail>>>;

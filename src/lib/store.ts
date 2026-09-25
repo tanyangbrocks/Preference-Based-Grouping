@@ -3,7 +3,7 @@ import "server-only";
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { promises as fs } from "fs";
 import path from "path";
-import type { Assignment, Pref } from "./assign";
+import type { AssignEvent, Assignment, Pref } from "./assign";
 
 export interface RoleRow {
   id: string;
@@ -25,6 +25,8 @@ export interface ActivityRow {
   finalizingAt: string | null;
   effectiveK: number | null;
   result: Assignment[] | null; // memberId = submission id
+  /** 分配過程事件（抽籤、讓位、放寬）；舊資料為 null */
+  events: AssignEvent[] | null;
   createdAt: string;
   /** 主辦方最後一次修改活動的時間（公開顯示，讓組員知道活動被改過） */
   editedAt: string | null;
@@ -62,7 +64,7 @@ export interface Store {
   updateSubmissionPrefs(id: string, prefs: Pref[]): Promise<void>;
   /** open → finalizing（或搶回卡住超過 60 秒的 finalizing）。搶到回 true */
   claimFinalize(activityId: string): Promise<boolean>;
-  saveResult(activityId: string, result: Assignment[], effectiveK: number): Promise<void>;
+  saveResult(activityId: string, result: Assignment[], effectiveK: number, events: AssignEvent[]): Promise<void>;
   /** 只在 open 且未截止時成功；resetSubmissions 會一併刪除所有填寫。成功回 true */
   updateActivity(id: string, edit: ActivityEdit, resetSubmissions: boolean): Promise<boolean>;
   /** 健康檢查：確認連得上 */
@@ -110,6 +112,7 @@ class PgStore implements Store {
       )`;
       await sql`CREATE INDEX IF NOT EXISTS submissions_token ON submissions(activity_id, member_token_hash)`;
       await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS edited_at timestamptz`;
+      await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS events jsonb`;
     })().catch((e) => {
       this.ready = null;
       throw e;
@@ -142,6 +145,7 @@ class PgStore implements Store {
       finalizingAt: r.finalizing_at ? new Date(r.finalizing_at).toISOString() : null,
       effectiveK: r.effective_k,
       result: r.result,
+      events: r.events ?? null,
       createdAt: new Date(r.created_at).toISOString(),
       editedAt: r.edited_at ? new Date(r.edited_at).toISOString() : null,
       roles: r.roles,
@@ -225,10 +229,11 @@ class PgStore implements Store {
     await this.sql`SELECT 1`;
   }
 
-  async saveResult(activityId: string, result: Assignment[], effectiveK: number) {
+  async saveResult(activityId: string, result: Assignment[], effectiveK: number, events: AssignEvent[]) {
     await this.ensure();
     await this.sql`UPDATE activities SET status = 'finalized', result = ${JSON.stringify(result)},
-      effective_k = ${effectiveK} WHERE id = ${activityId} AND status = 'finalizing'`;
+      effective_k = ${effectiveK}, events = ${JSON.stringify(events)}
+      WHERE id = ${activityId} AND status = 'finalizing'`;
   }
 }
 
@@ -321,13 +326,14 @@ class FileStore implements Store {
     }, true);
   }
   async ping() {}
-  saveResult(activityId: string, result: Assignment[], effectiveK: number) {
+  saveResult(activityId: string, result: Assignment[], effectiveK: number, events: AssignEvent[]) {
     return this.tx((db) => {
       const a = db.activities[activityId];
       if (a?.status !== "finalizing") return;
       a.status = "finalized";
       a.result = result;
       a.effectiveK = effectiveK;
+      a.events = events;
     }, true);
   }
 }

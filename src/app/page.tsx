@@ -12,7 +12,7 @@ export default function CreatePage() {
       <div>
         <h1 className="text-3xl font-semibold tracking-tight text-accent">發起分組活動</h1>
         <p className="mt-1 text-sm text-muted">
-          組員會排出各職位的志願序並分配渴望度，截止後系統自動分配。你看不到任何人的填寫內容，也無法更改分配結果。
+          組員會排出各職位的志願序並分配渴望度，截止後系統自動分配。截止前你看不到任何人的填寫內容；結算後可在後台看到每人分到第幾志願與押注。分配結果無法更改。
         </p>
       </div>
       <ActivityForm

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { PublicActivity } from "./service";
+import type { HostDetail, PublicActivity } from "./service";
 
-export type { PublicActivity };
+export type { HostDetail, PublicActivity };
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public data: Record<string, unknown>) {

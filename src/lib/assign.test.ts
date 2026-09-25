@@ -117,6 +117,46 @@ describe("assign", () => {
     expect(res.assignments.filter((a) => a.roleId === "B").length).toBe(1);
   });
 
+  it("事件：同分抽籤", () => {
+    const res = assign(roles({ A: 1, B: 1 }), [
+      mem("x", ["A", "B"], [2, 1]),
+      mem("y", ["A", "B"], [2, 1]),
+    ], "s");
+    const tie = res.events.find((e) => e.type === "tie");
+    expect(tie).toMatchObject({ type: "tie", round: 1, roleId: "A", desire: 2 });
+    if (tie?.type === "tie") expect([...tie.winners, ...tie.losers].sort()).toEqual(["x", "y"]);
+  });
+
+  it("事件：渴望度不同 → 不算抽籤", () => {
+    // 4 職位 → K=2；x 押 4 點拿 A，y 第 2 志願拿 B，沒有抽籤也沒有放寬
+    const res = assign(roles({ A: 1, B: 1, C: 1, D: 1 }), [
+      mem("x", ["A", "B", "C", "D"], [4, 2, 0, 0]),
+      mem("y", ["A", "B", "C", "D"], [3, 3, 0, 0]),
+    ], "s");
+    expect(roleOf(res, "x")).toBe("A");
+    expect(res.events).toEqual([]);
+  });
+
+  it("事件：讓位", () => {
+    const res = assign(roles({ A: 1, B: 1, C: 1, D: 1 }), [
+      mem("x", ["A", "C", "B", "D"], [6, 0, 0, 0]),
+      mem("y", ["B", "A", "C", "D"], [5, 1, 0, 0]),
+      mem("z", ["A", "B", "C", "D"], [3, 3, 0, 0]),
+      mem("w", ["C", "D", "A", "B"], [1, 5, 0, 0]),
+    ], "s");
+    expect(res.events).toContainEqual({ type: "yield", round: 1, roleId: "A", memberId: "x", desire: 6 });
+    expect(res.events.some((e) => e.type === "relax")).toBe(false);
+  });
+
+  it("事件：降低標準（放寬）列出被放寬的人", () => {
+    const res = assign(roles({ A: 1, B: 1, C: 1, D: 1 }), [
+      mem("a", ["A", "B", "C", "D"]), mem("b", ["A", "B", "C", "D"]),
+      mem("c", ["B", "A", "C", "D"]), mem("d", ["B", "A", "D", "C"]),
+    ], "s");
+    const relax = res.events.find((e) => e.type === "relax");
+    expect(relax?.type === "relax" && relax.memberIds.length).toBe(2);
+  });
+
   it("人數超過總名額 → 丟錯", () => {
     expect(() => assign(roles({ A: 1 }), [mem("a", ["A"]), mem("b", ["A"])], "s")).toThrow();
   });
