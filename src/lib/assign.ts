@@ -57,7 +57,7 @@ export function maxMatchWithin(roles: RoleSpec[], members: MemberSub[], kk: numb
   const allowed = new Map(
     members.map((mem) => [
       mem.id,
-      [...mem.prefs].sort((a, b) => a.rank - b.rank).slice(0, kk).map((p) => p.roleId),
+      mem.prefs.filter((p) => p.rank <= kk).map((p) => p.roleId),
     ]),
   );
   const cap = new Map(roles.map((r) => [r.id, r.capacity]));
@@ -154,9 +154,17 @@ class Matcher {
 
 // ---------- 主演算法 ----------
 
-export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): AssignResult {
-  const m = roles.length;
-  const k = acceptableK(m);
+/**
+ * 以「順位（rank）」逐輪分配。同一順位可以有多個職位（模式 ③ 的「有勾就算第二順位」）。
+ * k：可接受範圍 = 前 k 個順位（模式 ①② 為 ⌈m/2⌉、模式 ③ 為 2）。
+ */
+export function assign(
+  roles: RoleSpec[],
+  members: MemberSub[],
+  seed: string,
+  opts: { k?: number } = {},
+): AssignResult {
+  const k = opts.k ?? acceptableK(roles.length);
   const totalCap = roles.reduce((s, r) => s + r.capacity, 0);
   if (members.length > totalCap) {
     throw new Error(`人數 ${members.length} 超過總名額 ${totalCap}`);
@@ -167,6 +175,8 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
   for (const mem of members) {
     byRank.set(mem.id, [...mem.prefs].sort((a, b) => a.rank - b.rank));
   }
+  const maxRank = (u: string) => byRank.get(u)!.at(-1)!.rank;
+  const tierOf = (u: string, t: number) => byRank.get(u)!.filter((p) => p.rank === t);
 
   // 平手順序：先依 id 排序確保與輸入順序無關，再用 seed 洗牌
   const rng = sfc32(...cyrb128(seed));
@@ -176,37 +186,38 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
     [ids[i], ids[j]] = [ids[j], ids[i]];
   }
   const tie = new Map(ids.map((id, i) => [id, i]));
+  const roleTie = new Map(roles.map((r) => [r.id, rng()])); // 同順位多職位時的隨機次序
 
   const fullCap = new Map(roles.map((r) => [r.id, r.capacity]));
 
-  // 每人的可接受範圍（前 level[u] 志願）。預設全部 K；無解時只放寬「必要的最少人數」
-  const level = new Map(ids.map((id) => [id, k]));
+  // 每人的可接受範圍（前 level[u] 個順位）。預設全部 K；無解時只放寬「必要的最少人數」
+  const level = new Map<string, number>();
   const allowed = new Map<string, string[]>();
   const setLevel = (u: string, lv: number) => {
     level.set(u, lv);
-    allowed.set(u, byRank.get(u)!.slice(0, lv).map((p) => p.roleId));
+    allowed.set(u, byRank.get(u)!.filter((p) => p.rank <= lv).map((p) => p.roleId));
   };
-  for (const u of ids) setLevel(u, k);
+  for (const u of ids) setLevel(u, Math.min(k, maxRank(u)));
   const matcher = new Matcher(allowed);
 
   if (!matcher.match(ids, fullCap)) {
     // 階段 A：依 seed 隨機順序，逐一嘗試把人收緊到前 K，收不進的先放到不限。
     // 「能同時落在前 K 的人」構成 transversal matroid，貪心可得最大人數 → 放寬人數最少。
-    for (const u of ids) setLevel(u, m);
+    for (const u of ids) setLevel(u, maxRank(u));
     const relaxed: string[] = [];
     for (const u of ids) {
-      setLevel(u, k);
+      setLevel(u, Math.min(k, maxRank(u)));
       if (!matcher.match(ids, fullCap)) {
-        setLevel(u, m);
+        setLevel(u, maxRank(u));
         relaxed.push(u);
       }
     }
     // 階段 B：被放寬的人也盡量收緊（K+1、K+2…）
     for (const u of relaxed) {
-      for (let lv = k + 1; lv < m; lv++) {
+      for (let lv = k + 1; lv < maxRank(u); lv++) {
         setLevel(u, lv);
         if (matcher.match(ids, fullCap)) break;
-        setLevel(u, m);
+        setLevel(u, maxRank(u));
       }
     }
   }
@@ -219,33 +230,51 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
   const remaining = new Set(ids);
   const result = new Map<string, string>();
 
+  /** 暫時指派 u→r，若剩下的人仍能全部落在可接受範圍就確定，否則還原 */
+  const tryTake = (u: string, r: string) => {
+    const cap = remCap.get(r)!;
+    remCap.set(r, cap - 1);
+    remaining.delete(u);
+    if (matcher.match([...remaining], remCap)) {
+      result.set(u, r);
+      return true;
+    }
+    remCap.set(r, cap);
+    remaining.add(u);
+    return false;
+  };
+
   for (let round = 1; round <= effectiveK; round++) {
-    const cands = [...remaining].filter((u) => round <= level.get(u)!).sort((a, b) => {
-      const da = byRank.get(a)![round - 1].desire;
-      const db = byRank.get(b)![round - 1].desire;
-      return db - da || tie.get(a)! - tie.get(b)!;
-    });
+    const cands = [...remaining]
+      .filter((u) => round <= level.get(u)! && tierOf(u, round).length > 0)
+      .sort((a, b) => {
+        const da = Math.max(...tierOf(a, round).map((p) => p.desire));
+        const db = Math.max(...tierOf(b, round).map((p) => p.desire));
+        return db - da || tie.get(a)! - tie.get(b)!;
+      });
     const won = new Map<string, { u: string; d: number }[]>(); // 本輪各職位得主
     const full: { u: string; r: string; d: number }[] = []; // 本輪因名額已滿落選
     for (const u of cands) {
-      const { roleId: r, desire: d } = byRank.get(u)![round - 1];
-      const cap = remCap.get(r)!;
-      if (cap === 0) {
-        full.push({ u, r, d });
+      const opts = tierOf(u, round);
+      if (opts.length === 1) {
+        const { roleId: r, desire: d } = opts[0];
+        if (remCap.get(r) === 0) {
+          full.push({ u, r, d });
+        } else if (tryTake(u, r)) {
+          won.set(r, [...(won.get(r) ?? []), { u, d }]);
+        } else {
+          events.push({ type: "yield", round, roleId: r, memberId: u, desire: d });
+        }
         continue;
       }
-      remCap.set(r, cap - 1);
-      remaining.delete(u);
-      if (matcher.match([...remaining], remCap)) {
-        result.set(u, r);
-        won.set(r, [...(won.get(r) ?? []), { u, d }]);
-      } else {
-        remCap.set(r, cap);
-        remaining.add(u);
-        events.push({ type: "yield", round, roleId: r, memberId: u, desire: d });
-      }
+      // 同一順位有多個職位：渴望度高的優先，其次剩餘名額多的（分散），再其次隨機
+      const order = [...opts].sort(
+        (x, y) => y.desire - x.desire || remCap.get(y.roleId)! - remCap.get(x.roleId)! ||
+          roleTie.get(x.roleId)! - roleTie.get(y.roleId)!,
+      );
+      for (const p of order) if (remCap.get(p.roleId)! > 0 && tryTake(u, p.roleId)) break;
     }
-    // 抽籤：落選者和本輪某位得主押了相同點數
+    // 抽籤：落選者和本輪某位得主的渴望度相同
     const ties = new Map<string, { roleId: string; desire: number; winners: string[]; losers: string[] }>();
     for (const { u, r, d } of full) {
       const same = (won.get(r) ?? []).filter((w) => w.d === d);
@@ -274,25 +303,51 @@ export function assign(roles: RoleSpec[], members: MemberSub[], seed: string): A
   return { assignments, events, k, effectiveK };
 }
 
-// ---------- 輸入驗證（前後端共用）----------
+// ---------- 活動模式與輸入驗證（前後端共用）----------
 
-export function validatePrefs(prefs: Pref[], roleIds: string[]): string | null {
-  if (prefs.length !== roleIds.length) return "必須排序所有職位";
-  const budget = desireBudget(roleIds.length);
+/**
+ * bid  ：押注模式——全部職位排序，自由分配 ⌈m×3÷2⌉ 點渴望度
+ * tier ：三級渴望度——全部職位排序，每個職位選 1／2／3 級
+ * pick ：第一志願＋可接受——單選第一志願（順位 1），其餘勾選的職位都是順位 2，沒勾的是順位 3
+ */
+export type Mode = "bid" | "tier" | "pick";
+export const MODES: Mode[] = ["bid", "tier", "pick"];
+export const isMode = (v: unknown): v is Mode => MODES.includes(v as Mode);
+
+/** 可接受範圍（前幾個順位）：bid/tier = ⌈m/2⌉；pick = 第一志願＋有勾的 */
+export function acceptableTier(mode: Mode, roleCount: number): number {
+  return mode === "pick" ? 2 : acceptableK(roleCount);
+}
+
+export function validatePrefs(mode: Mode, prefs: Pref[], roleIds: string[]): string | null {
+  if (prefs.length !== roleIds.length) return "必須包含所有職位";
   const seenRole = new Set<string>();
-  const seenRank = new Set<number>();
-  let sum = 0;
   for (const p of prefs) {
     if (!roleIds.includes(p.roleId)) return "未知的職位";
     if (seenRole.has(p.roleId)) return "職位重複";
     seenRole.add(p.roleId);
-    if (!Number.isInteger(p.rank) || p.rank < 1 || p.rank > roleIds.length || seenRank.has(p.rank))
-      return "志願序不正確";
-    seenRank.add(p.rank);
-    if (!Number.isInteger(p.desire) || p.desire < 0 || p.desire > budget)
-      return `渴望度必須是 0～${budget} 的整數`;
-    sum += p.desire;
+    if (!Number.isInteger(p.rank) || !Number.isInteger(p.desire)) return "格式錯誤";
   }
+
+  if (mode === "pick") {
+    if (prefs.filter((p) => p.rank === 1).length !== 1) return "請選一個第一志願";
+    if (prefs.some((p) => p.rank < 1 || p.rank > 3)) return "格式錯誤";
+    if (prefs.some((p) => p.desire !== 0)) return "此模式沒有渴望度";
+    return null;
+  }
+
+  const ranks = new Set(prefs.map((p) => p.rank));
+  if (ranks.size !== roleIds.length || prefs.some((p) => p.rank < 1 || p.rank > roleIds.length))
+    return "志願序不正確";
+
+  if (mode === "tier") {
+    if (prefs.some((p) => p.desire < 1 || p.desire > 3)) return "渴望度必須是 1、2、3 級";
+    return null;
+  }
+
+  const budget = desireBudget(roleIds.length);
+  if (prefs.some((p) => p.desire < 0 || p.desire > budget)) return `渴望度必須是 0～${budget} 的整數`;
+  const sum = prefs.reduce((s, p) => s + p.desire, 0);
   if (sum !== budget) return `渴望度總和必須剛好 ${budget}（目前 ${sum}）`;
   return null;
 }

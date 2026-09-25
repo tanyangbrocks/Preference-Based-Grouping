@@ -1,12 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, formatDeadline, formatRemaining, useRemaining, type PublicActivity } from "@/lib/client";
+import { api, countdown, formatDeadline, useRemaining, type PublicActivity } from "@/lib/client";
+import { acceptableText, MODE_INFO } from "@/lib/modes";
 import { RevealCard, RevealItem } from "./motion";
 
-/** 讀取活動；截止或結算中時自動重新整理 */
-export function useActivity(url: string, headers?: Record<string, string>) {
-  const [data, setData] = useState<PublicActivity | null>(null);
+const POLL_MS = 15_000;
+
+/**
+ * 讀取活動。活動還在「填寫中」（status === open）時每 15 秒自動重新整理一次，
+ * 讓主辦方看得到即時的填寫人數／名單，也能在主辦方按下「執行分組」後盡快看到結果——
+ * 截止時間到了本身**不會**觸發任何事，分組完全要主辦方手動執行。
+ */
+export function useActivity<T extends PublicActivity = PublicActivity>(
+  url: string,
+  headers?: Record<string, string>,
+) {
+  const [data, setData] = useState<T | null>(null);
   const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -14,7 +24,7 @@ export function useActivity(url: string, headers?: Record<string, string>) {
 
   useEffect(() => {
     let alive = true;
-    api<PublicActivity>(url, { headers: JSON.parse(headerKey) }).then(
+    api<T>(url, { headers: JSON.parse(headerKey) }).then(
       (d) => {
         if (!alive) return;
         setData(d);
@@ -31,31 +41,33 @@ export function useActivity(url: string, headers?: Record<string, string>) {
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   const remaining = useRemaining(data?.deadline, offset);
-  const due = remaining !== null && remaining <= 0 && data?.status !== "finalized";
+  const polling = data?.status === "open";
   useEffect(() => {
-    if (!due) return;
-    const first = setTimeout(reload, 300);
-    const t = setInterval(reload, 2500);
-    return () => {
-      clearTimeout(first);
-      clearInterval(t);
-    };
-  }, [due, reload]);
+    if (!polling) return;
+    const t = setInterval(reload, POLL_MS);
+    return () => clearInterval(t);
+  }, [polling, reload]);
 
   return { data, error, reload, remaining };
 }
 
 export function ActivityHeader({ a, remaining }: { a: PublicActivity; remaining: number | null }) {
-  const open = a.status !== "finalized" && (remaining ?? 1) > 0;
+  const passed = remaining !== null && remaining <= 0;
+  const open = a.status === "open" && !passed;
+  const cd = remaining !== null ? countdown(remaining) : null;
   return (
     <RevealCard float className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
           open ? "bg-accent-soft text-accent" : "bg-border text-muted"}`}>
-          {a.status === "finalized" ? "已分配" : open ? "填寫中" : "分配中…"}
+          {a.status === "finalized" ? "已分配" : passed ? "已截止" : "填寫中"}
         </span>
-        {open && remaining !== null && (
-          <span className="text-xs text-muted tabular-nums">{formatRemaining(remaining)}</span>
+        <span className="rounded-full bg-border/70 px-2.5 py-0.5 text-xs text-muted">{MODE_INFO[a.mode].short}模式</span>
+        {open && cd && (
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums ${
+            cd.urgent ? "bg-danger/15 text-danger" : "text-muted"}`}>
+            {cd.text}
+          </span>
         )}
       </div>
       <h1 className="text-2xl font-semibold leading-tight text-accent">{a.title}</h1>
@@ -70,6 +82,11 @@ export function ActivityHeader({ a, remaining }: { a: PublicActivity; remaining:
           <dd className="tabular-nums">{a.submissionCount} / {a.capacity} 人</dd>
         </div>
       </dl>
+      {a.status === "open" && passed && (
+        <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-danger">
+          已截止填寫，正在等待主辦方執行分組（不會自動進行）。
+        </p>
+      )}
       {a.editedAt && a.status !== "finalized" && (
         <p className="text-xs text-muted">主辦方於 {formatDeadline(a.editedAt)} 修改過活動內容</p>
       )}
@@ -106,8 +123,8 @@ export function ResultView({ a, myName }: { a: PublicActivity; myName?: string }
       {a.result.length === 0 && <p className="text-sm text-muted">沒有人填寫。</p>}
       {a.relaxedCount > 0 && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm">
-          大家的志願衝突到不可能讓所有人都落在前 {a.k} 志願，系統已把放寬的人數降到最少：
-          {a.relaxedCount} 人（隨機決定）分到前 {a.k} 志願之外。
+          大家的志願衝突到不可能讓所有人都落在{acceptableText(a.mode, a.k)}，系統已把放寬的人數降到最少：
+          {a.relaxedCount} 人（隨機決定）分到{acceptableText(a.mode, a.k)}之外。
         </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2">

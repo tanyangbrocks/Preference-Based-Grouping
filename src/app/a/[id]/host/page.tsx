@@ -7,8 +7,20 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityHeader, Loading, ResultView, RoleList, useActivity } from "@/components/activity";
 import { ActivityForm } from "@/components/activity-form";
 import { HostDetailView } from "@/components/host-detail";
-import { api, ApiError, hostKey, storage, type HostDetail, type PublicActivity } from "@/lib/client";
+import { HostSubmissionsList } from "@/components/host-submissions";
+import {
+  api,
+  ApiError,
+  countdown,
+  hostKey,
+  storage,
+  type HostDetail,
+  type HostSubmissions,
+  type PublicActivity,
+} from "@/lib/client";
 import { RevealCard } from "@/components/motion";
+
+type HostView = PublicActivity & { detail: HostDetail | null; submissions: HostSubmissions };
 
 const noopSubscribe = () => () => {};
 
@@ -40,7 +52,9 @@ export default function HostPage() {
 }
 
 function HostDashboard({ id, token }: { id: string; token: string }) {
-  const { data: a, error, remaining, reload } = useActivity(`/api/activities/${id}/host`, { "x-host-token": token });
+  const { data: a, error, remaining, reload } = useActivity<HostView>(`/api/activities/${id}/host`, {
+    "x-host-token": token,
+  });
   const [editing, setEditing] = useState(false);
   const origin = useSyncExternalStore(
     noopSubscribe,
@@ -52,8 +66,8 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
   const inviteUrl = `${origin}/a/${id}`;
   const hostUrl = `${origin}/a/${id}/host#t=${token}`;
 
-  const open = a.status === "open" && (remaining ?? 1) > 0;
-  const detail = (a as PublicActivity & { detail?: HostDetail | null }).detail;
+  const passed = remaining !== null && remaining <= 0;
+  const open = a.status === "open" && !passed;
 
   if (editing && open) {
     return (
@@ -73,8 +87,17 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
           ✎ 編輯活動（截止時間、職位、人數上限…）
         </button>
       )}
-      {a.status === "finalized" ? <ResultView a={a} /> : <Share inviteUrl={inviteUrl} title={a.title} />}
-      {detail && <HostDetailView a={a} detail={detail} />}
+      {a.status === "finalized" ? (
+        <ResultView a={a} />
+      ) : (
+        <>
+          <Share inviteUrl={inviteUrl} title={a.title} />
+          <FinalizeCard id={id} token={token} passed={passed} remaining={remaining}
+            submissionCount={a.submissionCount} onDone={reload} />
+          <HostSubmissionsList list={a.submissions} />
+        </>
+      )}
+      {a.detail && <HostDetailView a={a} detail={a.detail} />}
       <RoleList a={a} />
       <RevealCard index={3} className="space-y-2 text-sm">
         <h2 className="font-semibold text-accent">主辦方後台連結</h2>
@@ -84,9 +107,55 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
         <CopyField value={hostUrl} />
       </RevealCard>
       <p className="text-center text-xs text-muted">
-        截止前主辦方只看得到填寫人數；結算後可看到每人分到第幾志願與該志願的押注。任何時候都無法修改或重新分配結果。
+        分組前主辦方看得到誰填了、什麼時候填的，但看不到填寫內容；結算後可看到每人分到第幾志願與該志願的渴望度。
+        任何時候都無法修改或重新分配結果。
       </p>
     </div>
+  );
+}
+
+function FinalizeCard({ id, token, passed, remaining, submissionCount, onDone }: {
+  id: string;
+  token: string;
+  passed: boolean;
+  remaining: number | null;
+  submissionCount: number;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    const early = !passed && remaining !== null
+      ? `現在還沒到截止時間（${countdown(remaining).text}），確定要提前執行分組嗎？執行後組員將無法再修改或新增志願。`
+      : "確定要執行分組嗎？結果無法復原，組員也無法再修改志願。";
+    if (!window.confirm(early)) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      await api(`/api/activities/${id}/host/finalize`, { method: "POST", headers: { "x-host-token": token } });
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <RevealCard index={1.5} className="space-y-2">
+      <h2 className="font-semibold text-accent">執行分組</h2>
+      <p className="text-sm text-muted">
+        {passed
+          ? "已經截止填寫。分組不會自動進行，按下面的按鈕才會執行——執行後結果無法復原。"
+          : "截止時間還沒到，也可以提前執行分組；執行後組員就無法再修改志願了。"}
+      </p>
+      {err && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-danger">{err}</p>}
+      <button type="button" onClick={run} disabled={busy || submissionCount === 0}
+        className={`btn w-full py-3 text-base ${passed ? "btn-primary" : "btn-ghost"}`}>
+        {busy ? "分組中…" : submissionCount === 0 ? "尚無人填寫" : passed ? "執行分組" : "提前執行分組"}
+      </button>
+    </RevealCard>
   );
 }
 
@@ -105,14 +174,14 @@ function EditForm({ a, token, onDone, onCancel }: {
 
   return (
     <ActivityForm
-      initial={{ title: a.title, description: a.description, deadline: a.deadline, roles: a.roles }}
+      initial={{ title: a.title, description: a.description, deadline: a.deadline, mode: a.mode, roles: a.roles }}
       submitLabel="儲存修改"
       busyLabel="儲存中…"
       onCancel={onCancel}
       notice={a.submissionCount > 0 && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm">
           已有 {a.submissionCount} 人填寫。修改名稱、說明、人數上限不影響已填的志願；
-          <strong>新增或刪除職位</strong>會清除所有人的志願，大家需要重新填寫。
+          <strong>新增／刪除職位或更換模式</strong>會清除所有人的志願，大家需要重新填寫。
         </p>
       )}
       onSubmit={async (values) => {

@@ -3,11 +3,13 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import { RevealCard } from "@/components/motion";
+import { MODE_INFO, type Mode } from "@/lib/modes";
 
 export interface ActivityFormValues {
   title: string;
   description: string;
   deadline: string; // ISO
+  mode: Mode;
   roles: { id?: string; name: string; description: string; capacity: number }[];
 }
 
@@ -56,6 +58,7 @@ export function ActivityForm({
   const [deadline, setDeadline] = useState(() =>
     initial ? toLocalInput(new Date(initial.deadline)) : defaultDeadline(),
   );
+  const [mode, setMode] = useState<Mode>(initial?.mode ?? "bid");
   const [roles, setRoles] = useState<RoleDraft[]>(() =>
     initial ? initial.roles.map((r) => ({ ...r, key: nextKey++ })) : [blankRole(), blankRole(), blankRole()],
   );
@@ -77,6 +80,7 @@ export function ActivityForm({
         title,
         description,
         deadline: new Date(deadline).toISOString(),
+        mode,
         roles: roles.map(({ id, name, description, capacity }) => ({ id, name, description, capacity })),
       });
     } catch (err) {
@@ -108,6 +112,24 @@ export function ActivityForm({
       </RevealCard>
 
       <RevealCard index={1} className="space-y-3">
+        <h2 className="font-semibold text-accent">填寫模式</h2>
+        <div className="grid gap-2" role="radiogroup" aria-label="填寫模式">
+          {(Object.keys(MODE_INFO) as Mode[]).map((m) => (
+            <label key={m}
+              className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${
+                mode === m ? "border-accent bg-accent-soft" : "border-border bg-field/60 hover:bg-accent-soft/50"}`}>
+              <input type="radio" name="mode" value={m} checked={mode === m}
+                onChange={() => setMode(m)} className="mt-1 accent-[var(--accent)]" />
+              <span>
+                <span className="block font-medium">{MODE_INFO[m].label}</span>
+                <span className="block text-sm text-muted">{MODE_INFO[m].desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </RevealCard>
+
+      <RevealCard index={2} className="space-y-3">
         <div className="flex items-baseline justify-between">
           <h2 className="font-semibold text-accent">職位</h2>
           <span className="text-sm text-muted">總名額 {totalCap} 人</span>
@@ -149,8 +171,10 @@ export function ActivityForm({
           ＋ 新增職位
         </button>
         <p className="text-xs text-muted">
-          {roles.length} 個職位 → 每人有 {Math.ceil((roles.length * 3) / 2)} 點渴望度；只要有任何可能，每個人都會分到自己的前 {k} 志願之一。
-          同一職位可以多人擔任；各職位人數上限加總就是可加入的人數上限。
+          {mode === "bid" && <>{roles.length} 個職位 → 每人有 {Math.ceil((roles.length * 3) / 2)} 點渴望度；只要有任何可能，每個人都會分到自己的前 {k} 志願之一。</>}
+          {mode === "tier" && <>{roles.length} 個職位 → 每個職位選 1～3 級渴望度；只要有任何可能，每個人都會分到自己的前 {k} 志願之一。</>}
+          {mode === "pick" && <>只要有任何可能，每個人都會分到自己的第一志願或有勾選的職位。</>}
+          {" "}同一職位可以多人擔任；各職位人數上限加總就是可加入的人數上限。
         </p>
       </RevealCard>
 

@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { customAlphabet } from "nanoid";
-import { acceptableK, assign, desireBudget } from "./assign";
+import { acceptableTier, assign, desireBudget } from "./assign";
 import { getStore, StoreConfigError, type ActivityRow } from "./store";
 
 export const newId = customAlphabet("23456789abcdefghijkmnpqrstuvwxyz", 10);
@@ -33,9 +33,13 @@ export function errorResponse(e: unknown) {
 
 export const isPastDeadline = (a: ActivityRow) => Date.now() >= Date.parse(a.deadline);
 
-/** 截止後第一個請求觸發結算；只會成功執行一次 */
-export async function finalizeIfDue(a: ActivityRow): Promise<ActivityRow> {
-  if (a.status === "finalized" || !isPastDeadline(a)) return a;
+/**
+ * 執行分組：只能由主辦方觸發（見 /api/activities/[id]/host/finalize），
+ * 截止時間到了**不會**自動執行——是否分組、什麼時候分組完全由主辦方決定，
+ * 截止前也可以提前執行。只會成功執行一次（用 claimFinalize 搶鎖）。
+ */
+export async function finalizeNow(a: ActivityRow): Promise<ActivityRow> {
+  if (a.status === "finalized") return a;
   const store = getStore();
   if (await store.claimFinalize(a.id)) {
     const subs = await store.listSubmissions(a.id);
@@ -43,6 +47,7 @@ export async function finalizeIfDue(a: ActivityRow): Promise<ActivityRow> {
       a.roles.map((r) => ({ id: r.id, capacity: r.capacity })),
       subs.map((s) => ({ id: s.id, prefs: s.prefs })),
       a.seed,
+      { k: acceptableTier(a.mode, a.roles.length) },
     );
     await store.saveResult(a.id, res.assignments, res.effectiveK, res.events);
   }
@@ -70,7 +75,8 @@ export async function publicView(a: ActivityRow) {
     roles: [...a.roles]
       .sort((x, y) => x.sortOrder - y.sortOrder)
       .map(({ id, name, description, capacity }) => ({ id, name, description, capacity })),
-    k: acceptableK(a.roles.length),
+    mode: a.mode,
+    k: acceptableTier(a.mode, a.roles.length),
     capacity,
     submissionCount: await store.countSubmissions(a.id),
     status: a.status,
@@ -79,7 +85,9 @@ export async function publicView(a: ActivityRow) {
     editedAt: a.editedAt ?? null,
     effectiveK: finalized ? a.effectiveK : null,
     /** 因志願衝突無解而落在前 k 志願之外的人數（不公開是誰） */
-    relaxedCount: finalized && a.result ? a.result.filter((r) => r.rank > acceptableK(a.roles.length)).length : 0,
+    relaxedCount: finalized && a.result
+      ? a.result.filter((r) => r.rank > acceptableTier(a.mode, a.roles.length)).length
+      : 0,
     result,
   };
 }
@@ -89,7 +97,7 @@ export type PublicActivity = Awaited<ReturnType<typeof publicView>>;
 export async function loadActivity(id: string): Promise<ActivityRow> {
   const a = await getStore().getActivity(id);
   if (!a) throw new HttpError(404, "找不到這個活動");
-  return finalizeIfDue(a);
+  return a;
 }
 
 /**
@@ -102,7 +110,7 @@ export async function hostDetail(a: ActivityRow) {
   const subs = await getStore().listSubmissions(a.id);
   const byId = new Map(subs.map((s) => [s.id, s]));
   const name = (id: string) => byId.get(id)?.displayName ?? "?";
-  const k = acceptableK(a.roles.length);
+  const k = acceptableTier(a.mode, a.roles.length);
   const relaxed = new Set(a.events?.flatMap((e) => (e.type === "relax" ? e.memberIds : [])) ?? []);
 
   const rows = a.result
@@ -128,7 +136,32 @@ export async function hostDetail(a: ActivityRow) {
     }
   });
 
-  return { budget: desireBudget(a.roles.length), k, rows, events, hasEventLog: a.events !== null };
+  return {
+    mode: a.mode,
+    budget: a.mode === "bid" ? desireBudget(a.roles.length) : a.mode === "tier" ? 3 : 0,
+    k,
+    rows,
+    events,
+    hasEventLog: a.events !== null,
+  };
 }
 
 export type HostDetail = NonNullable<Awaited<ReturnType<typeof hostDetail>>>;
+
+/**
+ * 主辦方專用：已填寫名單與時間（誰填了、第一次填寫時間、最後修改時間）。
+ * 不含志願內容，截止前後、結算前後都可以看。
+ */
+export async function hostSubmissions(a: ActivityRow) {
+  const subs = await getStore().listSubmissions(a.id);
+  return subs
+    .map((s) => ({
+      name: s.displayName,
+      submittedAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      edited: s.updatedAt !== s.createdAt,
+    }))
+    .sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt));
+}
+
+export type HostSubmissions = Awaited<ReturnType<typeof hostSubmissions>>;

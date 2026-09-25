@@ -3,7 +3,7 @@ import "server-only";
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { promises as fs } from "fs";
 import path from "path";
-import type { AssignEvent, Assignment, Pref } from "./assign";
+import type { AssignEvent, Assignment, Mode, Pref } from "./assign";
 
 export interface RoleRow {
   id: string;
@@ -18,6 +18,8 @@ export interface ActivityRow {
   title: string;
   description: string;
   deadline: string; // ISO UTC
+  /** 活動模式；舊資料沒有此欄位時視為 bid */
+  mode: Mode;
   hostTokenHash: string;
   seed: string;
   seedHash: string;
@@ -37,6 +39,7 @@ export interface ActivityEdit {
   title: string;
   description: string;
   deadline: string;
+  mode: Mode;
   roles: RoleRow[];
 }
 
@@ -49,6 +52,9 @@ export interface SubmissionRow {
   displayName: string;
   memberTokenHash: string;
   prefs: Pref[];
+  /** 第一次送出的時間（之後修改志願不會變） */
+  createdAt: string;
+  /** 最後一次送出／修改的時間 */
   updatedAt: string;
 }
 
@@ -107,12 +113,15 @@ class PgStore implements Store {
         display_name text NOT NULL,
         member_token_hash text NOT NULL,
         prefs jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now(),
         UNIQUE (activity_id, display_name)
       )`;
       await sql`CREATE INDEX IF NOT EXISTS submissions_token ON submissions(activity_id, member_token_hash)`;
       await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS edited_at timestamptz`;
       await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS events jsonb`;
+      await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'bid'`;
+      await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()`;
     })().catch((e) => {
       this.ready = null;
       throw e;
@@ -123,8 +132,8 @@ class PgStore implements Store {
   async createActivity(a: ActivityRow) {
     await this.ensure();
     await this.sql`INSERT INTO activities
-      (id, title, description, deadline, host_token_hash, seed, seed_hash, status, roles, created_at)
-      VALUES (${a.id}, ${a.title}, ${a.description}, ${a.deadline}, ${a.hostTokenHash}, ${a.seed},
+      (id, title, description, deadline, mode, host_token_hash, seed, seed_hash, status, roles, created_at)
+      VALUES (${a.id}, ${a.title}, ${a.description}, ${a.deadline}, ${a.mode}, ${a.hostTokenHash}, ${a.seed},
               ${a.seedHash}, 'open', ${JSON.stringify(a.roles)}, ${a.createdAt})`;
   }
 
@@ -138,6 +147,7 @@ class PgStore implements Store {
       title: r.title,
       description: r.description,
       deadline: new Date(r.deadline).toISOString(),
+      mode: r.mode ?? "bid",
       hostTokenHash: r.host_token_hash,
       seed: r.seed,
       seedHash: r.seed_hash,
@@ -165,6 +175,7 @@ class PgStore implements Store {
       displayName: r.display_name as string,
       memberTokenHash: r.member_token_hash as string,
       prefs: r.prefs as Pref[],
+      createdAt: new Date((r.created_at ?? r.updated_at) as string).toISOString(),
       updatedAt: new Date(r.updated_at as string).toISOString(),
     };
   }
@@ -185,8 +196,9 @@ class PgStore implements Store {
   async insertSubmission(s: SubmissionRow) {
     await this.ensure();
     try {
-      await this.sql`INSERT INTO submissions (id, activity_id, display_name, member_token_hash, prefs)
-        VALUES (${s.id}, ${s.activityId}, ${s.displayName}, ${s.memberTokenHash}, ${JSON.stringify(s.prefs)})`;
+      await this.sql`INSERT INTO submissions (id, activity_id, display_name, member_token_hash, prefs, created_at, updated_at)
+        VALUES (${s.id}, ${s.activityId}, ${s.displayName}, ${s.memberTokenHash}, ${JSON.stringify(s.prefs)},
+                ${s.createdAt}, ${s.createdAt})`;
     } catch (e) {
       if ((e as { code?: string }).code === "23505") throw new NameTakenError();
       throw e;
@@ -214,7 +226,7 @@ class PgStore implements Store {
     const rows = await this.sql`
       WITH upd AS (
         UPDATE activities SET title = ${e.title}, description = ${e.description},
-          deadline = ${e.deadline}, roles = ${JSON.stringify(e.roles)}, edited_at = now()
+          deadline = ${e.deadline}, mode = ${e.mode}, roles = ${JSON.stringify(e.roles)}, edited_at = now()
         WHERE id = ${id} AND status = 'open' AND deadline > now()
         RETURNING id
       ), del AS (
@@ -275,7 +287,10 @@ class FileStore implements Store {
     return this.tx((db) => void (db.activities[a.id] = a), true);
   }
   getActivity(id: string) {
-    return this.tx((db) => db.activities[id] ?? null);
+    return this.tx((db) => {
+      const a = db.activities[id];
+      return a ? { ...a, mode: a.mode ?? "bid" } : null;
+    });
   }
   countSubmissions(activityId: string) {
     return this.tx((db) => db.submissions.filter((s) => s.activityId === activityId).length);

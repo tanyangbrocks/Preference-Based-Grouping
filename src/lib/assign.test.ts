@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptableK, assign, desireBudget, maxMatchWithin, validatePrefs, type MemberSub, type RoleSpec } from "./assign";
+import { acceptableK, assign, desireBudget, maxMatchWithin, validatePrefs, type MemberSub, type Pref, type RoleSpec } from "./assign";
 
 /** order: 志願序的職位 id；desires: 對應的渴望度 */
 function mem(id: string, order: string[], desires?: number[]): MemberSub {
@@ -202,7 +202,95 @@ describe("validatePrefs", () => {
     expect(desireBudget(4)).toBe(6);
     expect(desireBudget(5)).toBe(8); // 7.5 無條件進位
   });
-  it("合法", () => expect(validatePrefs(mem("x", ids, [4, 2, 0, 0]).prefs, ids)).toBeNull());
-  it("總和不對", () => expect(validatePrefs(mem("x", ids, [4, 1, 0, 0]).prefs, ids)).toMatch(/6/));
-  it("少排職位", () => expect(validatePrefs(mem("x", ["A"], [6]).prefs, ids)).not.toBeNull());
+  it("合法", () => expect(validatePrefs("bid", mem("x", ids, [4, 2, 0, 0]).prefs, ids)).toBeNull());
+  it("總和不對", () => expect(validatePrefs("bid", mem("x", ids, [4, 1, 0, 0]).prefs, ids)).toMatch(/6/));
+  it("少排職位", () => expect(validatePrefs("bid", mem("x", ["A"], [6]).prefs, ids)).not.toBeNull());
+});
+
+/** 模式 ③：first = 第一志願；ok = 勾選「也可以」；其餘為順位 3 */
+function pick(id: string, all: string[], first: string, ok: string[] = []): MemberSub {
+  return {
+    id,
+    prefs: all.map((roleId) => ({ roleId, rank: roleId === first ? 1 : ok.includes(roleId) ? 2 : 3, desire: 0 })),
+  };
+}
+
+describe("模式 ② 三級渴望度", () => {
+  it("同一志願搶同一職位 → 級數高者得", () => {
+    const res = assign(roles({ A: 1, B: 1, C: 1, D: 1 }), [
+      mem("x", ["A", "B", "C", "D"], [2, 3, 1, 1]),
+      mem("y", ["A", "B", "C", "D"], [3, 1, 1, 1]),
+    ], "s");
+    expect(roleOf(res, "y")).toBe("A");
+    expect(roleOf(res, "x")).toBe("B");
+  });
+  it("驗證：只能 1～3 級，不需要加總", () => {
+    const ids = ["A", "B", "C"];
+    expect(validatePrefs("tier", mem("x", ids, [3, 3, 3]).prefs, ids)).toBeNull();
+    expect(validatePrefs("tier", mem("x", ids, [4, 1, 1]).prefs, ids)).not.toBeNull();
+    expect(validatePrefs("tier", mem("x", ids, [0, 1, 1]).prefs, ids)).not.toBeNull();
+  });
+});
+
+describe("模式 ③ 第一志願＋可接受", () => {
+  const all = ["A", "B", "C"];
+  it("盡量讓大家落在第一志願或有勾的職位", () => {
+    // 若 y 拿走 A，x（只接受 A、B）會和 z 搶 B → 必須由 x 拿 A、y 讓位去勾選的 C
+    const res = assign(roles({ A: 1, B: 1, C: 1 }), [
+      pick("x", all, "A", ["B"]),
+      pick("y", all, "A", ["C"]),
+      pick("z", all, "B", ["A", "C"]),
+    ], "s", { k: 2 });
+    expect(roleOf(res, "x")).toBe("A");
+    expect(roleOf(res, "z")).toBe("B");
+    expect(roleOf(res, "y")).toBe("C");
+    expect(res.assignments.every((a) => a.rank <= 2)).toBe(true);
+  });
+  it("勾選的多個職位同屬第二順位", () => {
+    const res = assign(roles({ A: 1, B: 1, C: 1 }), [
+      pick("x", all, "A", ["B", "C"]),
+      pick("y", all, "A", ["B", "C"]),
+      pick("z", all, "A", ["B", "C"]),
+    ], "s", { k: 2 });
+    expect(res.assignments.filter((a) => a.rank === 1).length).toBe(1);
+    expect(res.assignments.filter((a) => a.rank === 2).length).toBe(2);
+    expect(res.events.some((e) => e.type === "tie")).toBe(true);
+  });
+  it("沒勾別的職位又搶輸 → 只放寬必要的人", () => {
+    const res = assign(roles({ A: 1, B: 1, C: 1 }), [
+      pick("x", all, "A"),
+      pick("y", all, "A"),
+      pick("z", all, "B", ["C"]),
+    ], "s", { k: 2 });
+    expect(res.assignments.filter((a) => a.rank === 3).length).toBe(1);
+    expect(res.events.find((e) => e.type === "relax")).toBeTruthy();
+  });
+  it("驗證：必須剛好一個第一志願、沒有渴望度", () => {
+    const ok: Pref[] = pick("x", all, "A", ["B"]).prefs;
+    expect(validatePrefs("pick", ok, all)).toBeNull();
+    expect(validatePrefs("pick", ok.map((p) => ({ ...p, rank: 2 })), all)).not.toBeNull();
+    expect(validatePrefs("pick", ok.map((p) => ({ ...p, desire: 1 })), all)).not.toBeNull();
+  });
+  it("property：隨機 1000 組，落在第一或勾選以外的人數 = 理論最小值", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    for (let t = 0; t < 1000; t++) {
+      const m = 2 + Math.floor(rnd() * 6);
+      const spec: Record<string, number> = {};
+      for (let i = 0; i < m; i++) spec[`r${i}`] = 1 + Math.floor(rnd() * 3);
+      const rs = roles(spec);
+      const ids = rs.map((r) => r.id);
+      const n = 1 + Math.floor(rnd() * rs.reduce((s, r) => s + r.capacity, 0));
+      const ms = Array.from({ length: n }, (_, i) => {
+        const first = ids[Math.floor(rnd() * m)];
+        return pick(`m${i}`, ids, first, ids.filter((x) => x !== first && rnd() < 0.35));
+      });
+      const res = assign(rs, ms, `p${t}`, { k: 2 });
+      expect(res.assignments.length).toBe(n);
+      const used = new Map<string, number>();
+      for (const a of res.assignments) used.set(a.roleId, (used.get(a.roleId) ?? 0) + 1);
+      for (const r of rs) expect(used.get(r.id) ?? 0).toBeLessThanOrEqual(r.capacity);
+      expect(res.assignments.filter((a) => a.rank > 2).length).toBe(n - maxMatchWithin(rs, ms, 2));
+    }
+  });
 });

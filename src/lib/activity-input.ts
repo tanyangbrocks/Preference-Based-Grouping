@@ -1,4 +1,5 @@
 import "server-only";
+import { isMode, type Mode } from "./assign";
 import type { RoleRow } from "./store";
 import { HttpError } from "./service";
 
@@ -6,6 +7,7 @@ export interface ActivityInput {
   title?: unknown;
   description?: unknown;
   deadline?: unknown;
+  mode?: unknown;
   roles?: { id?: unknown; name?: unknown; description?: unknown; capacity?: unknown }[];
 }
 
@@ -14,8 +16,9 @@ const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 /**
  * 驗證建立／編輯活動的輸入。
  * existing：編輯時傳入目前的職位；帶著既有 id 的職位保留 id，其餘視為新增。
+ * currentMode：沒傳 mode 時沿用（編輯時為活動目前的模式）。
  */
-export function parseActivityInput(body: ActivityInput | null, existing: RoleRow[] = []) {
+export function parseActivityInput(body: ActivityInput | null, existing: RoleRow[] = [], currentMode: Mode = "bid") {
   if (!body) throw new HttpError(400, "格式錯誤");
 
   const title = str(body.title);
@@ -49,5 +52,8 @@ export function parseActivityInput(body: ActivityInput | null, existing: RoleRow
     return { id, name, description: str(r.description).slice(0, 200), capacity, sortOrder: i };
   });
 
-  return { title, description, deadline: new Date(deadlineMs).toISOString(), roles };
+  const mode = body.mode === undefined ? currentMode : body.mode;
+  if (!isMode(mode)) throw new HttpError(400, "未知的活動模式");
+
+  return { title, description, deadline: new Date(deadlineMs).toISOString(), mode, roles };
 }

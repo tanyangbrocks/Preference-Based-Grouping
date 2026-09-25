@@ -35,13 +35,14 @@ export async function PUT(req: Request, ctx: RouteContext<"/api/activities/[id]/
   try {
     const { id } = await ctx.params;
     const a = await loadActivity(id);
-    if (a.status !== "open" || isPastDeadline(a)) throw new HttpError(409, "已經截止，無法再修改");
+    if (a.status !== "open") throw new HttpError(409, "主辦方已經執行分組，無法再修改");
+    if (isPastDeadline(a)) throw new HttpError(409, "已經截止填寫，無法再修改");
 
     const body = (await req.json().catch(() => null)) as { displayName?: unknown; prefs?: Pref[] } | null;
     const prefs = Array.isArray(body?.prefs)
       ? body.prefs.map((p) => ({ roleId: String(p.roleId), rank: Number(p.rank), desire: Number(p.desire) }))
       : [];
-    const err = validatePrefs(prefs, a.roles.map((r) => r.id));
+    const err = validatePrefs(a.mode, prefs, a.roles.map((r) => r.id));
     if (err) throw new HttpError(400, err);
 
     const store = getStore();
@@ -59,6 +60,7 @@ export async function PUT(req: Request, ctx: RouteContext<"/api/activities/[id]/
       throw new HttpError(409, "名額已滿，無法再加入");
 
     const newTok = newToken();
+    const now = new Date().toISOString();
     try {
       await store.insertSubmission({
         id: newId(),
@@ -66,7 +68,8 @@ export async function PUT(req: Request, ctx: RouteContext<"/api/activities/[id]/
         displayName,
         memberTokenHash: sha256(newTok),
         prefs,
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       });
     } catch (e) {
       if (e instanceof NameTakenError) throw new HttpError(409, "這個名字已經有人使用，請換一個");

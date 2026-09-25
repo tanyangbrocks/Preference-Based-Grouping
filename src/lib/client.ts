@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { HostDetail, PublicActivity } from "./service";
+import type { HostDetail, HostSubmissions, PublicActivity } from "./service";
 
-export type { HostDetail, PublicActivity };
+export type { HostDetail, HostSubmissions, PublicActivity };
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public data: Record<string, unknown>) {
@@ -63,14 +63,22 @@ export function useRemaining(deadline: string | undefined, offset: number) {
   return Date.parse(deadline) - (now + offset);
 }
 
-export function formatRemaining(ms: number) {
-  if (ms <= 0) return "已截止";
-  const s = Math.floor(ms / 1000);
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (d > 0) return `剩 ${d} 天 ${h} 小時`;
-  if (h > 0) return `剩 ${h} 小時 ${m} 分`;
-  return `剩 ${m} 分 ${sec.toString().padStart(2, "0")} 秒`;
+const HOUR = 3600_000;
+const DAY = 86400_000;
+
+export interface Countdown {
+  text: string;
+  /** 3 天／1 天／1 小時內：紅色標籤 */
+  urgent: boolean;
+}
+
+/** 倒數文字＋是否進入緊急範圍（3 天內顯示天數、1 天內顯示小時、1 小時內顯示分鐘，皆標紅） */
+export function countdown(ms: number): Countdown {
+  if (ms <= 0) return { text: "已截止", urgent: false };
+  if (ms <= HOUR) return { text: `還剩 ${Math.ceil(ms / 60_000)} 分鐘`, urgent: true };
+  if (ms <= DAY) return { text: `還剩 ${Math.ceil(ms / HOUR)} 小時`, urgent: true };
+  if (ms <= 3 * DAY) return { text: `還剩 ${Math.ceil(ms / DAY)} 天`, urgent: true };
+  const d = Math.floor(ms / DAY);
+  const h = Math.floor((ms % DAY) / HOUR);
+  return { text: `剩 ${d} 天 ${h} 小時`, urgent: false };
 }
