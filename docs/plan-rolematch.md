@@ -277,3 +277,9 @@ assignments   -- 結算後寫入，之後不可再修改
 **`docs/checklist-code-review.md`**：純讀程式碼、不用實際跑就能檢查的人工複查清單，跟 preflight 腳本互補；四類（演算法不變量／資料層時間與交易邊界／API 驗證與授權／前端狀態同步），每一類都附上這次三個真實 bug 對應到哪一條當校準案例。
 
 **`docs/開發血汗錄.md`**：復刻自 `C:\SkillCreatorUE5\docs\開發血汗錄.md` 的機制（使用者一開始誤記成作品集專案，實際原始出處是 SkillCreatorUE5）。目前是空的範本——這次抓到的 3 個 bug 是一次讀程式碼就抓到的，不是那種「來回排查好幾輪、走錯路才破案」的修羅場，所以沒有硬塞案例進去；等真的踩到那種坑再寫。
+
+**更正（同一天）**：使用者澄清上面「日誌」那項其實記錯了，真正想要的是**根目錄 `實作進度.md` + 它的分割（歸檔）腳本機制**，不是開發血汗錄——`開發血汗錄.md` 保留（不會用到，但留著無妨），另外新增：
+
+- **`實作進度.md`**：對照 `C:\Portfolio\實作進度.md` 的結構（`目前狀態` / `最新完成` 表格 / `待辦` checklist / `相關文件`）建立，不是對照 SkillCreatorUE5 的版本——SkillCreatorUE5 那份的「最新完成」已經退化成塞進 `*最後更新：...*` 一行裡的「此前：（…）此前：（…）」超長 prose 鏈，沒有乾淨的 markdown 表格，連它自己的 `archive-done.ps1`（找表格分隔線來抓資料列）都解析不了那種格式；Portfolio 的版本才是真正在用、格式乾淨的那份，所以用它當範本。已補上 8 筆最新完成紀錄（對應到目前 git log 的 8 個 feature commit）。
+- **`docs/archive-done.mjs`**：Node 版（跟本專案其他工具腳本一致），不是逐字翻譯 `archive-done.ps1`——原始的 PowerShell 版本（Portfolio 跟 SkillCreatorUE5 各自一份）都假設表格是「新→舊」排序（保留前 N 列），但兩份檔案實際的列序都是「舊→新」（新完成的加在最後一行）,兩份原始腳本跟自己檔案的實際列序方向都不一致。RoleMatch 的版本照實際列序寫：保留**最後** N 列（最新），把前面的搬進 `docs/history/completed.md`。門檻用 CLAUDE.md 那條更精確的兩段式規則：`--trigger 8`（超過才動手）+ `--keep 5`（歸檔後留幾筆），不是 Portfolio 單一參數（一超過就砍到只剩該參數指定的數量）的版本。`npm run archive-progress` 執行。
+- `preflight-check.mjs` 加一項檢查：`實作進度.md` 的「最新完成」表格列數，超過 8 筆時提醒該跑歸檔腳本了。

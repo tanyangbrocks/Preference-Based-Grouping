@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "preflight": "node preflight-check.mjs"
+    "preflight": "node preflight-check.mjs",
+    "archive-progress": "node docs/archive-done.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

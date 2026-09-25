@@ -100,6 +100,15 @@ Head("Tier 1 — 設定檔正確性");
   iconExists ? Pass("src/app/icon.png 存在（分頁圖示）") : Warn("src/app/icon.png 不存在，會用 Next.js 預設圖示");
 }
 {
+  const p = path.join(root, "實作進度.md");
+  if (!existsSync(p)) Warn("實作進度.md 不存在——每次改完功能記得更新這份文件");
+  else {
+    const rows = readFileSync(p, "utf8").split(/\r?\n/).filter((l) => l.startsWith("|") && !/^\|[-| ]+\|$/.test(l.trim()) && !l.includes("功能"));
+    if (rows.length > 8) Warn(`實作進度.md 的「最新完成」表格有 ${rows.length} 列，超過 8 筆了，跑一下 npm run archive-progress`);
+    else Pass(`實作進度.md 的「最新完成」表格有 ${rows.length} 列（門檻 8，還不用歸檔）`);
+  }
+}
+{
   // 三個活動模式的名稱要跟 assign.ts 的 MODES 對齊，避免文件/UI 悄悄漏掉一個模式
   const assignSrc = readFileSync(path.join(root, "src/lib/assign.ts"), "utf8");
   const modesSrc = readFileSync(path.join(root, "src/lib/modes.ts"), "utf8");
