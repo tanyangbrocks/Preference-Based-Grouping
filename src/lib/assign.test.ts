@@ -271,6 +271,22 @@ describe("模式 ③ 第一志願＋可接受", () => {
     expect(validatePrefs("pick", ok.map((p) => ({ ...p, rank: 2 })), all)).not.toBeNull();
     expect(validatePrefs("pick", ok.map((p) => ({ ...p, desire: 1 })), all)).not.toBeNull();
   });
+  it("勾選多個職位時的搶奪也要記錄 tie／yield 事件（回歸測試：v0.7 曾經漏記）", () => {
+    // F 只有 1 個名額、4 人的第一志願都是 F → round1 淘汰 3 人進 round2；
+    // 這 3 人的 ok 都是 [A, B]（各 1 名額）→ 3 搶 2，desire 全部是 0（pick 模式沒有渴望度），
+    // 不管淘汰的是哪一組人，落選者一定會在 round2 撞見「跟某個贏家 desire 相同、名額已滿」，
+    // 這件事必須被記錄成 tie（或至少 yield），跟單一職位的分支一樣——這裡曾經完全不記錄任何事件。
+    const all = ["F", "A", "B", "D"];
+    const res = assign(roles({ F: 1, A: 1, B: 1, D: 2 }), [
+      pick("w", all, "F", ["A", "B"]),
+      pick("x", all, "F", ["A", "B"]),
+      pick("y", all, "F", ["A", "B"]),
+      pick("z", all, "F", ["A", "B"]),
+    ], "s", { k: 2 });
+    const round2 = res.events.filter((e) => (e.type === "tie" || e.type === "yield") && e.round === 2);
+    expect(round2.length).toBeGreaterThan(0);
+  });
+
   it("property：隨機 1000 組，落在第一或勾選以外的人數 = 理論最小值", () => {
     let seed = 7;
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);

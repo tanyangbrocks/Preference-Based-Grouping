@@ -258,3 +258,22 @@ assignments   -- 結算後寫入，之後不可再修改
 - `/api/activities/[id]/submission` 的錯誤訊息拆成兩種，避免「已截止」這個字眼用在「其實是主辦方提前分組了、DL 根本還沒到」的情況：`主辦方已經執行分組，無法再修改` vs `已經截止填寫，無法再修改`。
 
 **沒有做的事**：使用者也提到想看「誰還沒填」，但 v0.1 的 Q3 決定用自由填名字、不建立組員名單，所以系統並不知道「應該有誰」，只能列出「誰已經填了」。要做「誰還沒填」需要先做 Q3 的名單功能（主辦方先輸入預期成員名單），目前還沒做。
+
+---
+
+## 十二、手機／電腦模式分流、程式碼健檢工具（2026-09-26）
+
+**手機／電腦模式分流**：`src/lib/viewport.ts` 的 `useViewport()`（`useSyncExternalStore` + `matchMedia('(min-width: 768px)')`，跟 Tailwind 的 `md` 斷點對齊）。`/`、`/a/[id]`、`/a/[id]/host` 三個路由的預設匯出都改成先判斷 `useViewport()`，分流到 `Mobile*Page` / `Desktop*Page`，兩者目前都只是呼叫同一個 `*PageCore`（內容完全沒變）。這是刻意的空殼分流：先建立分岔點，兩邊長得一樣，之後要讓某一版長不同，直接改對應的 `Mobile*Page` / `Desktop*Page`，不會動到另一邊或共用邏輯。沒有把分流下推到每個共用元件（`ActivityHeader`／`ResultView`／`PrefForm`…）——目前沒有具體要分岔的設計，之後有需要再讓那個元件自己呼叫 `useViewport()` 或吃一個 `viewport` prop。
+
+**`code-review` skill（high effort）掃過全專案，抓到並修好 3 個真實 bug**（都在 `src/lib/assign.ts` / `activity-input.ts`，已加回歸測試）：
+1. `pick` 模式「多個職位同一順位」的搶奪完全沒有記錄成 `yield`／`tie` 事件，主辦方的「分配過程紀錄」看起來像什麼都沒發生
+2. 編輯活動時，就算截止時間完全沒改，也會用「送出當下」的時間重新檢查「至少 1 分鐘後」，快到期時改別的欄位會被誤擋
+3. 同順位多職位的隨機選擇（`roleTie`）是整次執行算一次的固定值，不是每次決定都重抽，同一個 seed 下所有人都會系統性偏好同一個職位
+
+`src/lib/assign.test.ts` 從 26 案增加到 30 案（含這次的回歸測試），另外新增 `src/lib/activity-input.test.ts`（4 案，之前沒有這支檔案的測試）。
+
+**`preflight-check.mjs`**（復刻 `C:\SkillCreatorUE5\preflight-check.ps1` 的機制與輸出風格，`npm run preflight`；`--skip-build` 跳過最慢的 build 步驟）：Tier 1（build/lint/type/test、`package.json`／`vercel.json`／圖示等設定檔正確性）、Tier 2（git 是否乾淨、本機測試資料是否堆積、原始碼有沒有寫死的資料庫連線字串）、Tier 3（明確列出腳本查不到什麼，例如正式環境 DB 連線、UI 實際畫面）。
+
+**`docs/checklist-code-review.md`**：純讀程式碼、不用實際跑就能檢查的人工複查清單，跟 preflight 腳本互補；四類（演算法不變量／資料層時間與交易邊界／API 驗證與授權／前端狀態同步），每一類都附上這次三個真實 bug 對應到哪一條當校準案例。
+
+**`docs/開發血汗錄.md`**：復刻自 `C:\SkillCreatorUE5\docs\開發血汗錄.md` 的機制（使用者一開始誤記成作品集專案，實際原始出處是 SkillCreatorUE5）。目前是空的範本——這次抓到的 3 個 bug 是一次讀程式碼就抓到的，不是那種「來回排查好幾輪、走錯路才破案」的修羅場，所以沒有硬塞案例進去；等真的踩到那種坑再寫。

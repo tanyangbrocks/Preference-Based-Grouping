@@ -186,7 +186,6 @@ export function assign(
     [ids[i], ids[j]] = [ids[j], ids[i]];
   }
   const tie = new Map(ids.map((id, i) => [id, i]));
-  const roleTie = new Map(roles.map((r) => [r.id, rng()])); // 同順位多職位時的隨機次序
 
   const fullCap = new Map(roles.map((r) => [r.id, r.capacity]));
 
@@ -268,11 +267,24 @@ export function assign(
         continue;
       }
       // 同一順位有多個職位：渴望度高的優先，其次剩餘名額多的（分散），再其次隨機
+      // （每次決定都重新抽，不能共用同一組職位排序，否則所有人在同一個 seed 下
+      //  遇到平手時都會一致偏好同一個職位，等於不是真的隨機）
+      const localTie = new Map(opts.map((p) => [p.roleId, rng()]));
       const order = [...opts].sort(
         (x, y) => y.desire - x.desire || remCap.get(y.roleId)! - remCap.get(x.roleId)! ||
-          roleTie.get(x.roleId)! - roleTie.get(y.roleId)!,
+          localTie.get(x.roleId)! - localTie.get(y.roleId)!,
       );
-      for (const p of order) if (remCap.get(p.roleId)! > 0 && tryTake(u, p.roleId)) break;
+      for (const p of order) {
+        if (remCap.get(p.roleId) === 0) {
+          full.push({ u, r: p.roleId, d: p.desire });
+          continue;
+        }
+        if (tryTake(u, p.roleId)) {
+          won.set(p.roleId, [...(won.get(p.roleId) ?? []), { u, d: p.desire }]);
+          break;
+        }
+        events.push({ type: "yield", round, roleId: p.roleId, memberId: u, desire: p.desire });
+      }
     }
     // 抽籤：落選者和本輪某位得主的渴望度相同
     const ties = new Map<string, { roleId: string; desire: number; winners: string[]; losers: string[] }>();

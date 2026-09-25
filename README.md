@@ -17,11 +17,15 @@
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
-npm test         # 分配演算法單元測試
+npm run dev        # http://localhost:3000
+npm test           # 單元測試
+npm run preflight  # 完整健檢：lint + 型別 + 測試 + build + 設定檔/repo 檢查（--skip-build 跳過最慢的 build）
 ```
 
 沒有設定 `DATABASE_URL` 時，資料會存在 `.data/dev-db.json`（只供開發用）。
+
+commit / push 前建議跑一次 `npm run preflight`；另外有一份純靠讀程式碼、不用實際跑的人工複查清單
+[docs/checklist-code-review.md](docs/checklist-code-review.md)，兩者互補。
 
 ## 部署到 Vercel
 

@@ -46,7 +46,7 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/activities/[id
     if (a.status !== "open" || isPastDeadline(a)) throw new HttpError(409, "已經截止，無法再修改");
 
     const body = (await req.json().catch(() => null)) as (ActivityInput & { resetSubmissions?: unknown }) | null;
-    const edit = parseActivityInput(body, a.roles, a.mode);
+    const edit = parseActivityInput(body, a.roles, a.mode, a.deadline);
     const reset = body?.resetSubmissions === true;
 
     const store = getStore();
