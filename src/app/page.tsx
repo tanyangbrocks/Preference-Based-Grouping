@@ -3,8 +3,23 @@
 import { useRouter } from "next/navigation";
 import { ActivityForm } from "@/components/activity-form";
 import { api, hostKey, storage } from "@/lib/client";
+import { useViewport } from "@/lib/viewport";
 
+// 手機／電腦模式分流點：目前兩邊都是同一個 CreatePageCore，長得一樣。
+// 之後想讓某一邊長不同，就直接改對應的 MobileCreatePage / DesktopCreatePage。
 export default function CreatePage() {
+  return useViewport() === "mobile" ? <MobileCreatePage /> : <DesktopCreatePage />;
+}
+
+function MobileCreatePage() {
+  return <CreatePageCore />;
+}
+
+function DesktopCreatePage() {
+  return <CreatePageCore />;
+}
+
+function CreatePageCore() {
   const router = useRouter();
 
   return (

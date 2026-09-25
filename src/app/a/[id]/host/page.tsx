@@ -19,12 +19,27 @@ import {
   type PublicActivity,
 } from "@/lib/client";
 import { RevealCard } from "@/components/motion";
+import { useViewport } from "@/lib/viewport";
 
 type HostView = PublicActivity & { detail: HostDetail | null; submissions: HostSubmissions };
 
 const noopSubscribe = () => () => {};
 
+// 手機／電腦模式分流點：目前兩邊都是同一個 HostPageCore，長得一樣。
+// 之後想讓某一邊長不同，就直接改對應的 MobileHostPage / DesktopHostPage。
 export default function HostPage() {
+  return useViewport() === "mobile" ? <MobileHostPage /> : <DesktopHostPage />;
+}
+
+function MobileHostPage() {
+  return <HostPageCore />;
+}
+
+function DesktopHostPage() {
+  return <HostPageCore />;
+}
+
+function HostPageCore() {
   const { id } = useParams<{ id: string }>();
   const [token, setToken] = useState<string | null | undefined>(undefined);
 

@@ -25,13 +25,28 @@ import { desireBudget, type Pref } from "@/lib/assign";
 import { Pop, RevealCard } from "@/components/motion";
 import { api, memberKey, storage, type PublicActivity } from "@/lib/client";
 import { MODE_INFO, rankLabel } from "@/lib/modes";
+import { useViewport } from "@/lib/viewport";
 
 interface MySubmission {
   submission: { displayName: string; prefs: Pref[]; updatedAt: string } | null;
   assignment?: { roleId: string; rank: number } | null;
 }
 
+// 手機／電腦模式分流點：目前兩邊都是同一個 MemberPageCore，長得一樣。
+// 之後想讓某一邊長不同，就直接改對應的 MobileMemberPage / DesktopMemberPage。
 export default function MemberPage() {
+  return useViewport() === "mobile" ? <MobileMemberPage /> : <DesktopMemberPage />;
+}
+
+function MobileMemberPage() {
+  return <MemberPageCore />;
+}
+
+function DesktopMemberPage() {
+  return <MemberPageCore />;
+}
+
+function MemberPageCore() {
   const { id } = useParams<{ id: string }>();
   const { data: a, error, remaining, reload } = useActivity(`/api/activities/${id}`);
   const [fetched, setMine] = useState<MySubmission | null>(null);
