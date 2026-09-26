@@ -33,6 +33,10 @@ export interface ActivityRow {
   /** 主辦方最後一次修改活動的時間（公開顯示，讓組員知道活動被改過） */
   editedAt: string | null;
   roles: RoleRow[];
+  /** 建立時登入的 Google 帳號 id（profile.sub）；null = 匿名建立的舊資料，不會出現在任何人的「我的活動」 */
+  ownerId: string | null;
+  favorited: boolean;
+  archived: boolean;
 }
 
 export interface ActivityEdit {
@@ -75,6 +79,15 @@ export interface Store {
   updateActivity(id: string, edit: ActivityEdit, resetSubmissions: boolean): Promise<boolean>;
   /** 健康檢查：確認連得上 */
   ping(): Promise<void>;
+
+  // ---- 主辦方帳號（「我的活動」列表）----
+  /** 某個帳號建立的所有活動（含已封存的；由呼叫端決定要不要過濾），依建立時間新到舊排序 */
+  listOwnedActivities(ownerId: string): Promise<ActivityRow[]>;
+  /** 只有活動的 ownerId 等於傳入的 ownerId 才會成功；回傳是否成功 */
+  setFavorited(id: string, ownerId: string, favorited: boolean): Promise<boolean>;
+  setArchived(id: string, ownerId: string, archived: boolean): Promise<boolean>;
+  /** 永久刪除活動與所有填寫紀錄；只有 ownerId 相符才會成功 */
+  deleteActivity(id: string, ownerId: string): Promise<boolean>;
 }
 
 const STALE_MS = 60_000;
@@ -122,6 +135,10 @@ class PgStore implements Store {
       await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS events jsonb`;
       await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'bid'`;
       await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()`;
+      await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS owner_id text`;
+      await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS favorited boolean NOT NULL DEFAULT false`;
+      await sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`;
+      await sql`CREATE INDEX IF NOT EXISTS activities_owner ON activities(owner_id)`;
     })().catch((e) => {
       this.ready = null;
       throw e;
@@ -132,34 +149,66 @@ class PgStore implements Store {
   async createActivity(a: ActivityRow) {
     await this.ensure();
     await this.sql`INSERT INTO activities
-      (id, title, description, deadline, mode, host_token_hash, seed, seed_hash, status, roles, created_at)
+      (id, title, description, deadline, mode, host_token_hash, seed, seed_hash, status, roles, created_at, owner_id)
       VALUES (${a.id}, ${a.title}, ${a.description}, ${a.deadline}, ${a.mode}, ${a.hostTokenHash}, ${a.seed},
-              ${a.seedHash}, 'open', ${JSON.stringify(a.roles)}, ${a.createdAt})`;
+              ${a.seedHash}, 'open', ${JSON.stringify(a.roles)}, ${a.createdAt}, ${a.ownerId})`;
+  }
+
+  private toActivity(r: Record<string, unknown>): ActivityRow {
+    return {
+      id: r.id as string,
+      title: r.title as string,
+      description: r.description as string,
+      deadline: new Date(r.deadline as string).toISOString(),
+      mode: (r.mode as Mode) ?? "bid",
+      hostTokenHash: r.host_token_hash as string,
+      seed: r.seed as string,
+      seedHash: r.seed_hash as string,
+      status: r.status as ActivityRow["status"],
+      finalizingAt: r.finalizing_at ? new Date(r.finalizing_at as string).toISOString() : null,
+      effectiveK: r.effective_k as number | null,
+      result: r.result as Assignment[] | null,
+      events: (r.events as AssignEvent[] | null) ?? null,
+      createdAt: new Date(r.created_at as string).toISOString(),
+      editedAt: r.edited_at ? new Date(r.edited_at as string).toISOString() : null,
+      roles: r.roles as RoleRow[],
+      ownerId: (r.owner_id as string | null) ?? null,
+      favorited: !!r.favorited,
+      archived: !!r.archived,
+    };
   }
 
   async getActivity(id: string) {
     await this.ensure();
     const rows = await this.sql`SELECT * FROM activities WHERE id = ${id}`;
-    if (rows.length === 0) return null;
-    const r = rows[0];
-    return {
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      deadline: new Date(r.deadline).toISOString(),
-      mode: r.mode ?? "bid",
-      hostTokenHash: r.host_token_hash,
-      seed: r.seed,
-      seedHash: r.seed_hash,
-      status: r.status,
-      finalizingAt: r.finalizing_at ? new Date(r.finalizing_at).toISOString() : null,
-      effectiveK: r.effective_k,
-      result: r.result,
-      events: r.events ?? null,
-      createdAt: new Date(r.created_at).toISOString(),
-      editedAt: r.edited_at ? new Date(r.edited_at).toISOString() : null,
-      roles: r.roles,
-    } as ActivityRow;
+    return rows.length ? this.toActivity(rows[0]) : null;
+  }
+
+  async listOwnedActivities(ownerId: string) {
+    await this.ensure();
+    const rows = await this.sql`SELECT * FROM activities WHERE owner_id = ${ownerId} ORDER BY created_at DESC`;
+    return rows.map((r) => this.toActivity(r));
+  }
+
+  async setFavorited(id: string, ownerId: string, favorited: boolean) {
+    await this.ensure();
+    const rows = await this.sql`UPDATE activities SET favorited = ${favorited}
+      WHERE id = ${id} AND owner_id = ${ownerId} RETURNING id`;
+    return rows.length > 0;
+  }
+
+  async setArchived(id: string, ownerId: string, archived: boolean) {
+    await this.ensure();
+    const rows = await this.sql`UPDATE activities SET archived = ${archived}
+      WHERE id = ${id} AND owner_id = ${ownerId} RETURNING id`;
+    return rows.length > 0;
+  }
+
+  async deleteActivity(id: string, ownerId: string) {
+    await this.ensure();
+    // submissions 有 ON DELETE CASCADE，刪活動會一併刪掉所有填寫紀錄
+    const rows = await this.sql`DELETE FROM activities WHERE id = ${id} AND owner_id = ${ownerId} RETURNING id`;
+    return rows.length > 0;
   }
 
   async countSubmissions(activityId: string) {
@@ -289,8 +338,42 @@ class FileStore implements Store {
   getActivity(id: string) {
     return this.tx((db) => {
       const a = db.activities[id];
-      return a ? { ...a, mode: a.mode ?? "bid" } : null;
+      return a
+        ? { ...a, mode: a.mode ?? "bid", ownerId: a.ownerId ?? null, favorited: a.favorited ?? false, archived: a.archived ?? false }
+        : null;
     });
+  }
+  listOwnedActivities(ownerId: string) {
+    return this.tx((db) =>
+      Object.values(db.activities)
+        .filter((a) => a.ownerId === ownerId)
+        .sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt)),
+    );
+  }
+  setFavorited(id: string, ownerId: string, favorited: boolean) {
+    return this.tx((db) => {
+      const a = db.activities[id];
+      if (!a || a.ownerId !== ownerId) return false;
+      a.favorited = favorited;
+      return true;
+    }, true);
+  }
+  setArchived(id: string, ownerId: string, archived: boolean) {
+    return this.tx((db) => {
+      const a = db.activities[id];
+      if (!a || a.ownerId !== ownerId) return false;
+      a.archived = archived;
+      return true;
+    }, true);
+  }
+  deleteActivity(id: string, ownerId: string) {
+    return this.tx((db) => {
+      const a = db.activities[id];
+      if (!a || a.ownerId !== ownerId) return false;
+      delete db.activities[id];
+      db.submissions = db.submissions.filter((s) => s.activityId !== id);
+      return true;
+    }, true);
   }
   countSubmissions(activityId: string) {
     return this.tx((db) => db.submissions.filter((s) => s.activityId === activityId).length);

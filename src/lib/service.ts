@@ -165,3 +165,27 @@ export async function hostSubmissions(a: ActivityRow) {
 }
 
 export type HostSubmissions = Awaited<ReturnType<typeof hostSubmissions>>;
+
+/**
+ * 「我的活動」列表（精簡視圖，不含志願內容、不含 host token）。
+ * 依建立時間新到舊排序（前端可以自行切換成舊到新）。
+ */
+export async function myActivitiesView(ownerId: string) {
+  const store = getStore();
+  const rows = await store.listOwnedActivities(ownerId);
+  return Promise.all(
+    rows.map(async (a) => ({
+      id: a.id,
+      title: a.title,
+      status: a.status,
+      deadline: a.deadline,
+      createdAt: a.createdAt,
+      favorited: a.favorited,
+      archived: a.archived,
+      submissionCount: await store.countSubmissions(a.id),
+      capacity: a.roles.reduce((s, r) => s + r.capacity, 0),
+    })),
+  );
+}
+
+export type MyActivities = Awaited<ReturnType<typeof myActivitiesView>>;

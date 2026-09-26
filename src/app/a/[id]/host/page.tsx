@@ -1,5 +1,6 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import QRCode from "qrcode";
@@ -12,6 +13,7 @@ import {
   api,
   ApiError,
   countdown,
+  hostHeaders,
   hostKey,
   storage,
   type HostDetail,
@@ -41,6 +43,7 @@ function DesktopHostPage() {
 
 function HostPageCore() {
   const { id } = useParams<{ id: string }>();
+  const session = useSession();
   const [token, setToken] = useState<string | null | undefined>(undefined);
 
   // 權杖只存在瀏覽器（URL fragment / localStorage），必須在掛載後讀取
@@ -54,22 +57,27 @@ function HostPageCore() {
     setToken(m ? m[1] : storage.get(hostKey(id)));
   }, [id]);
 
-  if (token === undefined) return <Loading error={null} />;
-  if (token === null) {
+  if (token === undefined || session.status === "loading") return <Loading error={null} />;
+  // 沒有權杖也沒登入：這個瀏覽器沒有權限。已登入（可能是活動的建立者，換了裝置／清過瀏覽器資料）
+  // 就不用權杖直接試，伺服器會用登入帳號比對 ownerId，不是建立者會回 403 顯示在畫面上。
+  if (token === null && session.status !== "authenticated") {
     return (
       <div className="card space-y-3 text-center">
         <p>這個瀏覽器沒有此活動的主辦方權限。</p>
+        <p className="text-sm text-muted">如果這是你建立的活動，請用建立時的 Google 帳號登入（右上角）。</p>
         <Link className="btn btn-primary" href={`/a/${id}`}>前往組員頁面</Link>
       </div>
     );
   }
-  return <HostDashboard id={id} token={token} />;
+  return <HostDashboard id={id} token={token ?? ""} />;
 }
 
+/** token 是空字串代表沒有權杖、靠登入帳號驗證身分 */
 function HostDashboard({ id, token }: { id: string; token: string }) {
-  const { data: a, error, remaining, reload } = useActivity<HostView>(`/api/activities/${id}/host`, {
-    "x-host-token": token,
-  });
+  const { data: a, error, remaining, reload } = useActivity<HostView>(
+    `/api/activities/${id}/host`,
+    hostHeaders(token),
+  );
   const [editing, setEditing] = useState(false);
   const origin = useSyncExternalStore(
     noopSubscribe,
@@ -79,7 +87,7 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
 
   if (!a) return <Loading error={error} />;
   const inviteUrl = `${origin}/a/${id}`;
-  const hostUrl = `${origin}/a/${id}/host#t=${token}`;
+  const hostUrl = token ? `${origin}/a/${id}/host#t=${token}` : `${origin}/a/${id}/host`;
 
   const passed = remaining !== null && remaining <= 0;
   const open = a.status === "open" && !passed;
@@ -117,7 +125,9 @@ function HostDashboard({ id, token }: { id: string; token: string }) {
       <RevealCard index={3} className="space-y-2 text-sm">
         <h2 className="font-semibold text-accent">主辦方後台連結</h2>
         <p className="text-muted">
-          這個瀏覽器已經記住你的主辦方身分。如果要在其他裝置回到這個後台，請保存下面的連結，不要分享給組員。
+          {token
+            ? "這個瀏覽器已經記住你的主辦方身分。如果要在其他裝置回到這個後台，用建立活動的 Google 帳號登入，在「查看已建立的活動」裡就找得到；也可以保存下面帶權杖的連結（不要分享給組員）。"
+            : "你是用登入的 Google 帳號進到這裡的。任何裝置只要用同一個帳號登入，都能在「查看已建立的活動」找到這個後台。"}
         </p>
         <CopyField value={hostUrl} />
       </RevealCard>
@@ -148,7 +158,7 @@ function FinalizeCard({ id, token, passed, remaining, submissionCount, onDone }:
     setErr(null);
     setBusy(true);
     try {
-      await api(`/api/activities/${id}/host/finalize`, { method: "POST", headers: { "x-host-token": token } });
+      await api(`/api/activities/${id}/host/finalize`, { method: "POST", headers: hostHeaders(token) });
       onDone();
     } catch (e) {
       setErr((e as Error).message);
@@ -183,7 +193,7 @@ function EditForm({ a, token, onDone, onCancel }: {
   const save = (values: object, resetSubmissions = false) =>
     api(`/api/activities/${a.id}/host`, {
       method: "PATCH",
-      headers: { "x-host-token": token },
+      headers: hostHeaders(token),
       body: JSON.stringify({ ...values, resetSubmissions }),
     });
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { HostDetail, HostSubmissions, PublicActivity } from "./service";
+import type { HostDetail, HostSubmissions, MyActivities, PublicActivity } from "./service";
 
-export type { HostDetail, HostSubmissions, PublicActivity };
+export type { HostDetail, HostSubmissions, MyActivities, PublicActivity };
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public data: Record<string, unknown>) {
@@ -38,6 +38,8 @@ export const storage = {
 };
 
 export const hostKey = (id: string) => `host:${id}`;
+/** 主辦方 API 的驗證標頭；沒有權杖（空字串）就不帶，改靠登入帳號比對建立者 */
+export const hostHeaders = (token: string): Record<string, string> => (token ? { "x-host-token": token } : {});
 export const memberKey = (id: string) => `member:${id}`;
 
 export function formatDeadline(iso: string) {

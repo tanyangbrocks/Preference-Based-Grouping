@@ -1,3 +1,4 @@
+import { auth } from "@/lib/auth";
 import { parseActivityInput, type ActivityInput } from "@/lib/activity-input";
 import {
   errorResponse,
@@ -13,11 +14,15 @@ import { getStore } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
+// 兩種方式都能通過驗證：① 帶 x-host-token（匿名建立時代代發的連結，或舊資料）
+// ② 目前登入帳號就是這個活動的建立者（ownerId 相符）——兩者擇一即可，
+// 不是「登入之後 token 就失效」，是為了讓舊連結繼續能用、也讓帳號可以在任何裝置直接進後台。
 async function authorize(req: Request, id: string) {
   const a = await loadActivity(id);
-  if (!tokenMatches(req.headers.get("x-host-token"), a.hostTokenHash))
-    throw new HttpError(403, "主辦方權杖無效");
-  return a;
+  if (tokenMatches(req.headers.get("x-host-token"), a.hostTokenHash)) return a;
+  const session = await auth();
+  if (session?.user?.id && session.user.id === a.ownerId) return a;
+  throw new HttpError(403, "主辦方權杖無效");
 }
 
 // 主辦方驗證：公開資訊 + 已填寫名單（誰填了、何時填的，隨時可看）

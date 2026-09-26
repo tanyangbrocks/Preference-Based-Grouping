@@ -12,7 +12,7 @@
 // docs/checklist-code-review.md，列出「讀程式碼就能找到、但這支腳本抓不到」的檢查項目。
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
@@ -54,11 +54,13 @@ Head("Tier 1 — 靜態檢查（build / lint / type / test）");
 
 {
   const r = run("npx", ["eslint"]);
-  r.ok ? Pass("eslint 無錯誤") : Fail(`eslint 有錯誤：\n${r.out.split("\n").slice(0, 15).join("\n")}`);
+  if (r.ok) Pass("eslint 無錯誤");
+  else Fail(`eslint 有錯誤：\n${r.out.split("\n").slice(0, 15).join("\n")}`);
 }
 {
   const r = run("npx", ["tsc", "--noEmit"]);
-  r.ok ? Pass("tsc --noEmit 通過") : Fail(`型別錯誤：\n${r.out.split("\n").slice(0, 15).join("\n")}`);
+  if (r.ok) Pass("tsc --noEmit 通過");
+  else Fail(`型別錯誤：\n${r.out.split("\n").slice(0, 15).join("\n")}`);
 }
 {
   const r = run("npx", ["vitest", "run"]);
@@ -70,7 +72,8 @@ if (skipBuild) {
   Skip("next build（傳了 --skip-build，跳過；平常 push 前建議至少跑一次完整版）");
 } else {
   const r = run("npm", ["run", "build"]);
-  r.ok ? Pass("next build 成功") : Fail(`next build 失敗：\n${r.out.split("\n").slice(-30).join("\n")}`);
+  if (r.ok) Pass("next build 成功");
+  else Fail(`next build 失敗：\n${r.out.split("\n").slice(-30).join("\n")}`);
 }
 
 // ---------------------------------------------------------------- Tier 1: 設定檔正確性
@@ -97,7 +100,8 @@ Head("Tier 1 — 設定檔正確性");
 }
 {
   const iconExists = existsSync(path.join(root, "src/app/icon.png"));
-  iconExists ? Pass("src/app/icon.png 存在（分頁圖示）") : Warn("src/app/icon.png 不存在，會用 Next.js 預設圖示");
+  if (iconExists) Pass("src/app/icon.png 存在（分頁圖示）");
+  else Warn("src/app/icon.png 不存在，會用 Next.js 預設圖示");
 }
 {
   const p = path.join(root, "實作進度.md");
@@ -114,9 +118,8 @@ Head("Tier 1 — 設定檔正確性");
   const modesSrc = readFileSync(path.join(root, "src/lib/modes.ts"), "utf8");
   const declared = [...assignSrc.matchAll(/"(bid|tier|pick)"/g)].map((m) => m[1]);
   const modesCovered = ["bid", "tier", "pick"].every((m) => modesSrc.includes(`${m}:`));
-  new Set(declared).size >= 3 && modesCovered
-    ? Pass("assign.ts 的三種模式都有對應到 modes.ts 的 MODE_INFO")
-    : Fail("assign.ts 的 Mode 跟 modes.ts 的 MODE_INFO 對不齊，檢查是否漏了一個模式");
+  if (new Set(declared).size >= 3 && modesCovered) Pass("assign.ts 的三種模式都有對應到 modes.ts 的 MODE_INFO");
+  else Fail("assign.ts 的 Mode 跟 modes.ts 的 MODE_INFO 對不齊，檢查是否漏了一個模式");
 }
 
 // ---------------------------------------------------------------- Tier 2: repo 衛生
