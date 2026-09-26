@@ -42,7 +42,9 @@ export function useActivity<T extends PublicActivity = PublicActivity>(
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   const remaining = useRemaining(data?.deadline, offset);
-  const polling = data?.status === "open";
+  // finalizing（正在分組）也要繼續輪詢：如果剛好在這個短暫狀態抓到資料就停止輪詢，
+  // 組員停在「等待主辦方分組」的畫面，直到手動重新整理才看得到結果
+  const polling = data?.status === "open" || data?.status === "finalizing";
   useEffect(() => {
     if (!polling) return;
     const t = setInterval(reload, POLL_MS);

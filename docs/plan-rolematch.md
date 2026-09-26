@@ -314,3 +314,15 @@ assignments   -- 結算後寫入，之後不可再修改
 - **09 游標聚光燈**：`CursorSpotlight`（`src/components/cursor-spotlight.tsx`），**僅電腦版**——需要能 hover 的精確指標且寬度 ≥ 768px，手機／平板完全不渲染。
 - 共用的裝置判斷在 `src/lib/media.ts`（`useFinePointer` / `useDesktopPointer` / `useReducedMotion`，伺服器端一律 false）。
 - 驗證備註：預覽窗格在背景時 `requestAnimationFrame`／`IntersectionObserver` 不會觸發（`document.hidden === true`），所以動畫是在頁面內以計時器替代這兩個 API 後實測——亂碼解密約 1.2 秒解出「主持人」、數字滾到最終值、傾斜／磁性／聚光燈的 transform 都有正確變化並在離開後復原。
+
+---
+
+## 十六、預檢＋清單複查與修正（2026-09-26）
+
+跑 `npm run preflight`（16 項全過）＋逐項對照 `docs/checklist-code-review.md`，找到 1 個真實 bug 並修復：
+
+- **卡住的 `finalizing` 鎖回收不了**：改成手動分組後，`/host/finalize` 只放行 `status === "open"`，`claimFinalize` 裡「鎖超過 60 秒可接手」的邏輯變成死碼——分組中途被中斷（伺服器逾時）的活動會永遠卡住，主辦方按鈕一直回 409。修法：新增 `finalizeByHost`（`service.ts`）放行 `open`／`finalizing`，鎖還新回 409「正在分組中」，過期則接手完成。
+- **輪詢在 `finalizing` 停止**：`useActivity` 只在 `open` 時輪詢，剛好在 `finalizing` 短暫狀態抓到資料，組員會停在等待畫面直到手動重新整理。改成 `open`／`finalizing` 都繼續輪詢。
+- 回歸測試 `src/lib/finalize.test.ts`（4 案，用真的 FileStore 導到暫存資料夾）；也用 dev server 實測過「過期 finalizing → 200 finalized」。
+- 授權邊界複查（不帶 cookie）：建立／我的活動／刪除 → 401；host 後台／分組 → 403；都符合預期。
+- 沒修、只記錄的競態與效能問題見 `docs/checklist-code-review.md` 最後一節。

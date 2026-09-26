@@ -48,6 +48,13 @@
       如果會，確認呼叫端有沒有把「原本的值」傳進來，讓沒有要修改的情況跳過重新驗證。
       > 校準案例：編輯活動時，就算截止時間完全沒改，也會用「送出當下的現在時間」重新檢查
       > 「至少 1 分鐘後」，導致快到期時隨便改個敘述都會被擋。
+- [ ] **狀態機的每一個「中間狀態」，是不是都有一條能離開它的路**：`status` 有 `open → finalizing → finalized`，
+      `finalizing` 是「執行到一半」的鎖。問自己：如果程式在這個狀態被中斷（伺服器函式逾時、部署重啟），
+      下一個請求走得到「接手／解鎖」的程式碼嗎？特別要檢查**呼叫端的前置條件**有沒有把中間狀態擋在門外——
+      鎖的過期回收寫在 `claimFinalize` 裡，但入口如果只放行 `open`，那段回收邏輯就永遠是死碼。
+      > 校準案例：改成「主辦方手動分組」後，`/host/finalize` 只放行 `status === "open"`，原本靠
+      > `loadActivity` 自動觸發的過期鎖回收就走不到了，卡住的活動永遠回 409。
+      > 順便檢查前端輪詢的停止條件（`useActivity` 的 `polling`）是不是也把中間狀態當成「已結束」。
 - [ ] **`PgStore` 跟 `FileStore` 兩份實作是不是仍然行為一致**：兩個 class 各自獨立實作同一個
       `Store` 介面，改了其中一個方法（尤其是判斷條件、時間邊界）時，另一個要跟著改，不能只改
       一邊就以為兩邊都測過了（本機開發永遠只會測到 `FileStore` 那一份，`PgStore` 只有連正式
@@ -81,11 +88,25 @@
 
 ## 校準案例（2026-09-26，已修）
 
-這三個是這份清單第一次寫成時，靠上面的方法論實際抓到、也已經修好、並補上回歸測試的真實案例：
+前三個是這份清單第一次寫成時，靠上面的方法論實際抓到、也已經修好、並補上回歸測試的真實案例：
 
 1. `src/lib/assign.ts` 多職位分支漏記 `yield`／`tie` 事件（對應 A 的第一條）
 2. `src/lib/activity-input.ts` 編輯活動時未修改的截止時間被誤擋（對應 B 的第二條）
 3. `src/lib/assign.ts` 的 `roleTie` 不是真正逐次隨機（對應 A 的第二條）
+4. `src/app/api/activities/[id]/host/finalize/route.ts` 只放行 `open`，卡住的 `finalizing` 鎖永遠回收不了（對應 B 的「中間狀態」那條；改用 `finalizeByHost`，回歸測試在 `src/lib/finalize.test.ts`）
 
 回歸測試在 `src/lib/assign.test.ts`（"勾選多個職位時的搶奪也要記錄" 那一案）跟
 `src/lib/activity-input.test.ts`。
+
+## 已知但還沒修的（2026-09-26 複查時發現）
+
+這些是照 B 的第一條（先讀、再判斷、再寫）找到的競態，窗口都很小（要兩個人在幾十毫秒內同時操作），
+而且修法需要改 Postgres 的 SQL，本機沒有 Postgres 可以實際跑，所以先記錄、不冒險改：
+
+- 組員「儲存志願」跟主辦方「執行分組」同時發生：`submission` PUT 是先讀 `status === "open"`、再 INSERT／UPDATE，
+  中間如果 `claimFinalize` 搶到鎖，這份志願會被存進資料庫但不在分組結果裡（組員看到「儲存成功」、結果卻沒有自己）。
+  修法：把 `status = 'open'` 放進 INSERT／UPDATE 同一條語句（`INSERT ... SELECT ... WHERE EXISTS(...)`，
+  注意 SELECT 清單裡的參數要明確 `::jsonb`／`::timestamptz`），用回傳列數判斷。
+- 名額上限：`countSubmissions >= capacity` 之後才 INSERT，兩個人同時送出最後一個名額可以都成功（會多一人）。
+- 主辦方 PATCH：讀 `count` 之後到 `updateActivity` 之間如果又有人送出，「人數上限不可少於已填人數」的檢查可能已過期。
+- `myActivitiesView` 對每個活動各查一次 `countSubmissions`（N+1）；活動數多時可以改成一條 `GROUP BY`。

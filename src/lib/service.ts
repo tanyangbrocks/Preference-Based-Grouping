@@ -54,6 +54,19 @@ export async function finalizeNow(a: ActivityRow): Promise<ActivityRow> {
   return (await store.getActivity(a.id))!;
 }
 
+/**
+ * 主辦方按下「執行分組」（/host/finalize）。open 與 finalizing 都要放行進 finalizeNow：
+ * finalizing 是「上一次分組執行到一半被中斷」（例如伺服器函式逾時）留下的鎖，claimFinalize 會在鎖超過
+ * 60 秒後讓下一次呼叫接手；如果這裡就把 finalizing 擋掉，這個活動會永遠卡在「正在分組中」。
+ * 鎖還沒過期（別的請求正在分組）→ 回 409 請稍後再試；已經分組完成 → 409。
+ */
+export async function finalizeByHost(a: ActivityRow): Promise<ActivityRow> {
+  if (a.status === "finalized") throw new HttpError(409, "已經分組過了");
+  const done = await finalizeNow(a);
+  if (done.status !== "finalized") throw new HttpError(409, "正在分組中，請幾秒後再試一次");
+  return done;
+}
+
 /** 對外公開的活動資訊：不含任何人的志願內容、不含 seed（結算前） */
 export async function publicView(a: ActivityRow) {
   const store = getStore();

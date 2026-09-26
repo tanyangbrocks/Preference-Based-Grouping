@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import {
   errorResponse,
-  finalizeNow,
+  finalizeByHost,
   hostDetail,
   hostSubmissions,
   HttpError,
@@ -23,9 +23,9 @@ export async function POST(req: Request, ctx: RouteContext<"/api/activities/[id]
     const isOwner = !!session?.user?.id && session.user.id === a.ownerId;
     if (!isOwner && !tokenMatches(req.headers.get("x-host-token"), a.hostTokenHash))
       throw new HttpError(403, "主辦方權杖無效");
-    if (a.status !== "open") throw new HttpError(409, "已經分組過了，或正在分組中");
 
-    const done = await finalizeNow(a);
+    // 不能在這裡只放行 open：卡住的 finalizing 鎖要靠 finalizeByHost → claimFinalize 接手（見 service.ts）
+    const done = await finalizeByHost(a);
     return Response.json({
       ...(await publicView(done)),
       detail: await hostDetail(done),
