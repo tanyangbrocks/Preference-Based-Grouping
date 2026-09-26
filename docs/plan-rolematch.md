@@ -283,3 +283,11 @@ assignments   -- 結算後寫入，之後不可再修改
 - **`實作進度.md`**：對照 `C:\Portfolio\實作進度.md` 的結構（`目前狀態` / `最新完成` 表格 / `待辦` checklist / `相關文件`）建立，不是對照 SkillCreatorUE5 的版本——SkillCreatorUE5 那份的「最新完成」已經退化成塞進 `*最後更新：...*` 一行裡的「此前：（…）此前：（…）」超長 prose 鏈，沒有乾淨的 markdown 表格，連它自己的 `archive-done.ps1`（找表格分隔線來抓資料列）都解析不了那種格式；Portfolio 的版本才是真正在用、格式乾淨的那份，所以用它當範本。已補上 8 筆最新完成紀錄（對應到目前 git log 的 8 個 feature commit）。
 - **`docs/archive-done.mjs`**：Node 版（跟本專案其他工具腳本一致），不是逐字翻譯 `archive-done.ps1`——原始的 PowerShell 版本（Portfolio 跟 SkillCreatorUE5 各自一份）都假設表格是「新→舊」排序（保留前 N 列），但兩份檔案實際的列序都是「舊→新」（新完成的加在最後一行）,兩份原始腳本跟自己檔案的實際列序方向都不一致。RoleMatch 的版本照實際列序寫：保留**最後** N 列（最新），把前面的搬進 `docs/history/completed.md`。門檻用 CLAUDE.md 那條更精確的兩段式規則：`--trigger 8`（超過才動手）+ `--keep 5`（歸檔後留幾筆），不是 Portfolio 單一參數（一超過就砍到只剩該參數指定的數量）的版本。`npm run archive-progress` 執行。
 - `preflight-check.mjs` 加一項檢查：`實作進度.md` 的「最新完成」表格列數，超過 8 筆時提醒該跑歸檔腳本了。
+
+---
+
+## 十三、主辦方帳號、我的活動、志願插槽（v0.8，2026-09-26）
+
+依 `docs/plan-slots-and-accounts.md` 實作，細節與設定步驟見該文件與 `docs/setup-google-login.md`。
+與先前版本的差異：**建立活動現在必須登入 Google**（組員填寫仍完全不用登入）；主辦方後台可用登入帳號進入，不再只能靠權杖連結；
+志願排序 UI 從「單一可排序清單」改成「固定編號插槽＋拖曳互換＋磁吸動畫」。

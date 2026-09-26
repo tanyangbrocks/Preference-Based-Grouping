@@ -1,28 +1,11 @@
 "use client";
 
-import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { useParams } from "next/navigation";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityHeader, Loading, ResultView, useActivity } from "@/components/activity";
 import { desireBudget, type Pref } from "@/lib/assign";
 import { Pop, RevealCard } from "@/components/motion";
+import { PreferenceSlots } from "@/components/preference-slots";
 import { api, memberKey, storage, type PublicActivity } from "@/lib/client";
 import { MODE_INFO, rankLabel } from "@/lib/modes";
 import { useViewport } from "@/lib/viewport";
@@ -170,24 +153,19 @@ function PrefForm({
     () => new Set(mode === "pick" && initial ? initial.prefs.filter((p) => p.rank === 2).map((p) => p.roleId) : []),
   );
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
   const used = order.reduce((s, rid) => s + (desire[rid] || 0), 0);
   const left = mode === "bid" ? budget - used : 0;
   const roleById = new Map(a.roles.map((r) => [r.id, r]));
 
-  const move = (from: number, to: number) => {
-    if (to < 0 || to >= order.length) return;
-    setOrder((o) => arrayMove(o, from, to));
+  // 志願插槽：兩個插槽的職位互換（拖到已有卡片的插槽、或用上下箭頭都是這個動作）
+  const swap = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= order.length) return;
+    setOrder((o) => {
+      const n = [...o];
+      [n[from], n[to]] = [n[to], n[from]];
+      return n;
+    });
     setMsg(null);
-  };
-  const onDragEnd = (e: DragEndEvent) => {
-    if (e.over && e.active.id !== e.over.id)
-      move(order.indexOf(String(e.active.id)), order.indexOf(String(e.over.id)));
   };
   const setD = (rid: string, v: number) => {
     const lo = mode === "tier" ? 1 : 0;
@@ -299,35 +277,16 @@ function PrefForm({
           })}
         </ul>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={order} strategy={verticalListSortingStrategy}>
-            <ol className="space-y-2">
-              {order.map((rid, i) => (
-                <Fragment key={rid}>
-                  {i === a.k && (
-                    <li className="flex items-center gap-2 py-1 text-xs text-muted" aria-hidden>
-                      <span className="h-px flex-1 bg-border" />
-                      以下原則上不會被分到
-                      <span className="h-px flex-1 bg-border" />
-                    </li>
-                  )}
-                  <PrefRow
-                    id={rid}
-                    rank={i + 1}
-                    name={roleById.get(rid)?.name ?? rid}
-                    dim={i >= a.k}
-                    mode={mode}
-                    desire={desire[rid] || 0}
-                    budget={budget}
-                    onDesire={(v) => setD(rid, v)}
-                    onUp={i > 0 ? () => move(i, i - 1) : undefined}
-                    onDown={i < order.length - 1 ? () => move(i, i + 1) : undefined}
-                  />
-                </Fragment>
-              ))}
-            </ol>
-          </SortableContext>
-        </DndContext>
+        <PreferenceSlots
+          order={order}
+          roleName={(rid) => roleById.get(rid)?.name ?? rid}
+          k={a.k}
+          mode={mode}
+          desire={desire}
+          budget={budget}
+          onSwap={swap}
+          onDesire={setD}
+        />
       )}
 
       {mode === "bid" && (
@@ -369,61 +328,5 @@ function PrefForm({
         {busy ? "送出中…" : blocker ?? (initial ? "更新志願" : "送出志願")}
       </button>
     </RevealCard>
-  );
-}
-
-function PrefRow(props: {
-  id: string;
-  rank: number;
-  name: string;
-  dim: boolean;
-  mode: PublicActivity["mode"];
-  desire: number;
-  budget: number;
-  onDesire: (v: number) => void;
-  onUp?: () => void;
-  onDown?: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
-    useSortable({ id: props.id });
-  return (
-    <li ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`flex items-center gap-2 rounded-xl border bg-field p-2 ${
-        isDragging ? "relative z-10 border-accent shadow-lg" : "border-border"} ${props.dim ? "opacity-60" : ""}`}>
-      <button ref={setActivatorNodeRef} type="button" data-drag-handle {...attributes} {...listeners}
-        className="cursor-grab touch-none px-1 text-lg text-muted active:cursor-grabbing" aria-label={`拖拉排序 ${props.name}`}>
-        ⠿
-      </button>
-      <span className="w-6 shrink-0 text-center text-sm font-semibold text-muted tabular-nums">{props.rank}</span>
-      <span className="min-w-0 flex-1 truncate font-medium">{props.name}</span>
-      <div className="flex shrink-0 flex-col">
-        <button type="button" className="px-1 text-xs leading-none text-muted disabled:opacity-20"
-          disabled={!props.onUp} onClick={props.onUp} aria-label="上移">▲</button>
-        <button type="button" className="px-1 text-xs leading-none text-muted disabled:opacity-20"
-          disabled={!props.onDown} onClick={props.onDown} aria-label="下移">▼</button>
-      </div>
-      {props.mode === "tier" ? (
-        <div className="flex shrink-0 overflow-hidden rounded-lg border border-border" role="radiogroup"
-          aria-label={`${props.name} 渴望度`}>
-          {[1, 2, 3].map((lv) => (
-            <button key={lv} type="button" role="radio" aria-checked={props.desire === lv}
-              onClick={() => props.onDesire(lv)}
-              className={`w-9 py-1 text-sm tabular-nums ${
-                props.desire === lv ? "bg-accent text-accent-fg" : "bg-field text-muted hover:bg-accent-soft"}`}>
-              {lv}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="flex shrink-0 items-center gap-1">
-          <input type="number" inputMode="numeric" min={0} max={props.budget}
-            className="input w-16 px-1.5 py-1 text-center tabular-nums"
-            value={props.desire} onChange={(e) => props.onDesire(Number(e.target.value))}
-            aria-label={`${props.name} 渴望度`} />
-          <span className="text-xs text-muted">點</span>
-        </div>
-      )}
-    </li>
   );
 }
