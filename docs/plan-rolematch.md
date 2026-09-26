@@ -300,3 +300,17 @@ assignments   -- 結算後寫入，之後不可再修改
 - **深色風格**：極深底色（`#0a0a12`）＋三顆模糊光球（紫／青／洋紅）緩慢漂移的 `.theme-mesh` 背景，卡片改成半透明玻璃（`backdrop-filter`），文字為偏白的淡紫。淺色模式維持原本作品集風格不動。光球手機半徑降低、`prefers-reduced-motion` 時停止漂移。
 - **點擊光環**：`src/components/click-halo.tsx` 在全站任何點擊位置產生一個柔和光暈＋兩圈擴散環（樣式在 `globals.css` 的 `.click-halo`），1.1 秒後移除。參考 PBC 專案的點擊特效但去掉十字光芒，避免干擾表單閱讀；鍵盤觸發的 click 與「減少動態效果」設定下不顯示。光環顏色跟隨主題（`--halo`）。
 - **動畫特效評估**：見 [analysis-wp-tool-animations.md](analysis-wp-tool-animations.md)。結論：08（漸層網格）已採用；01 已有；07（亂碼解密，公布結果用）最推薦；05／06 適合首頁；03／10 不適合。
+
+---
+
+## 十五、淺色漸層網格背景＋六個動畫特效（v0.10，2026-09-26）
+
+- **淺色背景漸層網格**：`.theme-mesh` 由「只有深色模式顯示」改成淺色／深色共用，顏色改由 `--mesh-*` CSS 變數決定。淺色版底色是 `#FFFBEA → #FBF3DC → #F4E8C2` 的斜向漸層，上面三顆模糊光球（略淺奶白、略深暖金、中間奶黃）緩慢漂移，全部維持奶油／金色系，卡片（`#EFE5C8`）才不會糊進背景。
+- **07 文字亂碼解密**：`ScrambleText`，組員頁「你被分配到」的職位名稱；每個瀏覽器只自動播放第一次（`localStorage` 的 `rm:revealed:{活動id}`），點名稱可重播。
+- **05 逐字浮現**：`StaggerText`，首頁標題。純 CSS（`.stagger-char`）。
+- **06 磁性按鈕**：`Magnetic`，首頁兩顆 CTA。只在 `(hover: hover) and (pointer: fine)` 啟用。
+- **02 數字計數**：`CountUp`，各處「已填人數」。進入畫面才開始，數值變動時接續滾動。
+- **04 卡片傾斜**：`Tilt`，活動列表卡、分配結果職位卡、「你被分配到」卡。表單與拖曳區不加。
+- **09 游標聚光燈**：`CursorSpotlight`（`src/components/cursor-spotlight.tsx`），**僅電腦版**——需要能 hover 的精確指標且寬度 ≥ 768px，手機／平板完全不渲染。
+- 共用的裝置判斷在 `src/lib/media.ts`（`useFinePointer` / `useDesktopPointer` / `useReducedMotion`，伺服器端一律 false）。
+- 驗證備註：預覽窗格在背景時 `requestAnimationFrame`／`IntersectionObserver` 不會觸發（`document.hidden === true`），所以動畫是在頁面內以計時器替代這兩個 API 後實測——亂碼解密約 1.2 秒解出「主持人」、數字滾到最終值、傾斜／磁性／聚光燈的 transform 都有正確變化並在離開後復原。

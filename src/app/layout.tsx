@@ -31,7 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="flex min-h-full flex-col font-sans">
-        {/* 深色模式的動態光暈背景（淺色模式不顯示）；放在 Providers 外面，才不會受 OverscrollBounce 的 transform 影響 */}
+        {/* 淺色／深色共用的動態光暈漸層背景（顏色見 globals.css 的 --mesh-*）；放在 Providers 外面，才不會受 OverscrollBounce 的 transform 影響 */}
         <div className="theme-mesh" aria-hidden>
           <i />
           <i />

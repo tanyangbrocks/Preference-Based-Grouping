@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ActivityHeader, Loading, ResultView, useActivity } from "@/components/activity";
 import { desireBudget, type Pref } from "@/lib/assign";
+import { ScrambleText, Tilt } from "@/components/fx";
 import { Pop, RevealCard } from "@/components/motion";
 import { PreferenceSlots } from "@/components/preference-slots";
 import { api, memberKey, storage, type PublicActivity } from "@/lib/client";
@@ -91,12 +92,23 @@ function MemberPageCore() {
 
 function MyResult({ a, assignment }: { a: PublicActivity; assignment: { roleId: string; rank: number } }) {
   const role = a.roles.find((r) => r.id === assignment.roleId);
+  // 亂碼解密只在「這個瀏覽器第一次看到結果」時自動播放，之後重整不再重播（點職位名稱可以手動再看一次）
+  const seenKey = `rm:revealed:${a.id}`;
+  const [firstTime] = useState(() => storage.get(seenKey) === null);
+  useEffect(() => {
+    storage.set(seenKey, "1");
+  }, [seenKey]);
+
   return (
-    <Pop className="card border-accent bg-accent-soft text-center">
-      <p className="text-sm text-muted">你被分配到</p>
-      <p className="my-1 text-3xl font-semibold text-accent">{role?.name}</p>
-      <p className="text-sm">你的{rankLabel(a.mode, assignment.rank)}</p>
-    </Pop>
+    <Tilt max={6}>
+      <Pop className="card border-accent bg-accent-soft text-center">
+        <p className="text-sm text-muted">你被分配到</p>
+        <p className="my-1 text-3xl font-semibold text-accent">
+          <ScrambleText text={role?.name ?? ""} autoPlay={firstTime} />
+        </p>
+        <p className="text-sm">你的{rankLabel(a.mode, assignment.rank)}</p>
+      </Pop>
+    </Tilt>
   );
 }
 

@@ -4,6 +4,7 @@ import { MotionConfig } from "framer-motion";
 import { ReactLenis } from "lenis/react";
 import { SessionProvider } from "next-auth/react";
 import { ClickHalo } from "./click-halo";
+import { CursorSpotlight } from "./cursor-spotlight";
 import { OverscrollBounce } from "./overscroll-bounce";
 
 // 平滑捲動（Lenis）+ 邊緣彈動，同作品集專案的根佈局；SessionProvider 讓任何 client
@@ -13,6 +14,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
       <ClickHalo />
+      <CursorSpotlight />
       <MotionConfig reducedMotion="user">
         <ReactLenis root>
           <OverscrollBounce>{children}</OverscrollBounce>

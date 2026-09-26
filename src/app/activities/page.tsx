@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loading } from "@/components/activity";
+import { CountUp, Tilt } from "@/components/fx";
 import { RevealItem } from "@/components/motion";
 import { api, ApiError, formatDeadline, type MyActivities } from "@/lib/client";
 import { useViewport } from "@/lib/viewport";
@@ -153,7 +154,9 @@ function Section({ title, rows, mutate }: {
       <ul className="space-y-2">
         {rows.map((a, i) => (
           <RevealItem key={a.id} index={i} float={false}>
-            <ActivityRow a={a} mutate={mutate} />
+            <Tilt max={3}>
+              <ActivityRow a={a} mutate={mutate} />
+            </Tilt>
           </RevealItem>
         ))}
       </ul>
@@ -172,7 +175,7 @@ function ActivityRow({ a, mutate }: { a: MyActivities[number]; mutate: (id: stri
           {a.archived && <span className="shrink-0 rounded bg-border px-1.5 py-0.5 text-xs text-muted">已封存</span>}
         </div>
         <div className="text-xs text-muted">
-          截止 {formatDeadline(a.deadline)} · 已填 {a.submissionCount}/{a.capacity} 人
+          截止 {formatDeadline(a.deadline)} · 已填 <CountUp value={a.submissionCount} />/{a.capacity} 人
         </div>
       </button>
       <button type="button" aria-label="切換我的最愛"

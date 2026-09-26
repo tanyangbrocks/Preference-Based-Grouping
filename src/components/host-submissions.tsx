@@ -1,6 +1,7 @@
 "use client";
 
 import { formatDeadline, type HostSubmissions } from "@/lib/client";
+import { CountUp } from "./fx";
 import { RevealCard, RevealItem } from "./motion";
 
 /** 主辦方專用：已填寫名單（誰填了、什麼時候填的）。不含志願內容，隨時可看。 */
@@ -9,7 +10,7 @@ export function HostSubmissionsList({ list }: { list: HostSubmissions }) {
     <RevealCard index={2} className="space-y-3">
       <div className="flex items-baseline justify-between">
         <h2 className="font-semibold text-accent">已填寫名單</h2>
-        <span className="text-sm text-muted tabular-nums">{list.length} 人</span>
+        <span className="text-sm text-muted tabular-nums"><CountUp value={list.length} /> 人</span>
       </div>
       {list.length === 0 ? (
         <p className="text-sm text-muted">還沒有人填寫。</p>

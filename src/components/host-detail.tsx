@@ -2,6 +2,7 @@
 
 import type { HostDetail, PublicActivity } from "@/lib/client";
 import { acceptableText, rankLabel, type Mode } from "@/lib/modes";
+import { CountUp } from "./fx";
 import { RevealCard, RevealItem } from "./motion";
 
 /** 主辦方後台：結算後的分組明細與分配過程紀錄 */
@@ -27,7 +28,7 @@ export function HostDetailView({ a, detail }: { a: PublicActivity; detail: HostD
             {[...byRank.entries()].sort(([x], [y]) => x - y).map(([rank, n]) => (
               <span key={rank}
                 className={`rounded-full px-3 py-1 text-sm ${rank > detail.k ? "bg-warn-soft text-danger" : "bg-accent-soft"}`}>
-                {rankLabel(mode, rank)} <strong className="tabular-nums">{n}</strong> 人
+                {rankLabel(mode, rank)} <strong><CountUp value={n} /></strong> 人
               </span>
             ))}
           </div>

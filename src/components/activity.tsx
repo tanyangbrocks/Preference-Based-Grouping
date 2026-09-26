@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, countdown, formatDeadline, useRemaining, type PublicActivity } from "@/lib/client";
 import { acceptableText, MODE_INFO } from "@/lib/modes";
+import { CountUp, Tilt } from "./fx";
 import { RevealCard, RevealItem } from "./motion";
 
 const POLL_MS = 15_000;
@@ -79,7 +80,7 @@ export function ActivityHeader({ a, remaining }: { a: PublicActivity; remaining:
         </div>
         <div>
           <dt className="text-muted">已填寫</dt>
-          <dd className="tabular-nums">{a.submissionCount} / {a.capacity} 人</dd>
+          <dd className="tabular-nums"><CountUp value={a.submissionCount} /> / {a.capacity} 人</dd>
         </div>
       </dl>
       {a.status === "open" && passed && (
@@ -129,24 +130,26 @@ export function ResultView({ a, myName }: { a: PublicActivity; myName?: string }
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         {byRole.map((r, i) => (
-          <RevealItem key={r.id} index={i} className="rounded-xl border border-border bg-field/60 p-3">
-            <div className="mb-2 flex items-baseline justify-between">
-              <span className="font-medium">{r.name}</span>
-              <span className="text-xs text-muted tabular-nums">{r.members.length} / {r.capacity}</span>
-            </div>
-            {r.members.length === 0 ? (
-              <p className="text-sm text-muted">—</p>
-            ) : (
-              <ul className="flex flex-wrap gap-1.5">
-                {r.members.map((m) => (
-                  <li key={m.name} className={`rounded-md px-2 py-0.5 text-sm ${
-                    m.name === myName ? "bg-accent text-accent-fg" : "bg-accent-soft"}`}>
-                    {m.name}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </RevealItem>
+          <Tilt key={r.id} max={5}>
+            <RevealItem index={i} className="h-full rounded-xl border border-border bg-field/60 p-3">
+              <div className="mb-2 flex items-baseline justify-between">
+                <span className="font-medium">{r.name}</span>
+                <span className="text-xs text-muted tabular-nums">{r.members.length} / {r.capacity}</span>
+              </div>
+              {r.members.length === 0 ? (
+                <p className="text-sm text-muted">—</p>
+              ) : (
+                <ul className="flex flex-wrap gap-1.5">
+                  {r.members.map((m) => (
+                    <li key={m.name} className={`rounded-md px-2 py-0.5 text-sm ${
+                      m.name === myName ? "bg-accent text-accent-fg" : "bg-accent-soft"}`}>
+                      {m.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </RevealItem>
+          </Tilt>
         ))}
       </div>
       <Fairness a={a} />

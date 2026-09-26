@@ -15,6 +15,15 @@
   --danger: oklch(0.577 0.245 27.325);
   --warn-soft: oklch(0.93 0.05 70);
   --shadow: 0 10px 24px -8px oklch(0.45 0.06 85 / 0.35);
+
+  /* 淺色背景漸層網格：以 --background（#FBF3DC）為基底，往「略淺」（近乎奶白）與「略深」（暖金）各取一組同色系顏色，
+     底色是斜向的三段漸層，上面再疊三顆模糊光球緩慢漂移。色調刻意不跳出奶油／金色系，卡片（#EFE5C8）才不會糊進背景。 */
+  --mesh-base: linear-gradient(155deg, #fffbea 0%, #fbf3dc 48%, #f4e8c2 100%);
+  --mesh-1: #fffdf2; --mesh-1-o: 0.95; /* 略淺：奶白 */
+  --mesh-2: #ecd9a0; --mesh-2-o: 0.5; /* 略深：暖金 */
+  --mesh-3: #f7e7b6; --mesh-3-o: 0.6; /* 中間偏深一點的奶黃 */
+  --mesh-blur: 80px;
+  --spot: rgb(255 252 235 / 0.85); /* 游標聚光燈：比背景更亮的柔光 */
 }
 
 /* 深色：深藍黑底＋紫／洋紅／青綠柔光緩慢飄動（參考 C:\wp-tool\動畫特效\08_漸層網格背景），
@@ -34,6 +43,13 @@
   --warn-soft: rgb(236 72 153 / 0.18);
   --shadow: 0 12px 32px -8px rgb(124 58 237 / 0.5);
   --halo: #c9b8ff;
+
+  --mesh-base: #0a0a12;
+  --mesh-1: #6d28d9; --mesh-1-o: 0.5;
+  --mesh-2: #0e9aa7; --mesh-2-o: 0.5;
+  --mesh-3: #be2f7a; --mesh-3-o: 0.4;
+  --mesh-blur: 90px;
+  --spot: rgb(150 110 255 / 0.22);
 }
 
 :root { --halo: var(--accent); }
@@ -43,32 +59,63 @@
   -webkit-backdrop-filter: blur(16px) saturate(1.25);
 }
 
-/* 深色模式的動態光暈背景（純 CSS，元素在 layout.tsx，淺色模式不顯示也不跑動畫） */
+/* 動態光暈背景（純 CSS，元素在 layout.tsx）：淺色／深色共用同一組元素，顏色由上面的 --mesh-* 變數決定 */
 .theme-mesh {
   position: fixed;
   inset: 0;
   z-index: -1;
-  display: none;
   overflow: hidden;
   pointer-events: none;
-  background: #0a0a12;
+  background: var(--mesh-base);
 }
-:root[data-theme="dark"] .theme-mesh { display: block; }
 .theme-mesh i {
   position: absolute;
   border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.5;
+  filter: blur(var(--mesh-blur));
   will-change: transform;
 }
-.theme-mesh i:nth-child(1) { width: 60vmax; height: 60vmax; top: -22%; left: -12%; background: #6d28d9; animation: mesh-1 24s ease-in-out infinite; }
-.theme-mesh i:nth-child(2) { width: 50vmax; height: 50vmax; bottom: -20%; right: -8%; background: #0e9aa7; animation: mesh-2 28s ease-in-out infinite; }
-.theme-mesh i:nth-child(3) { width: 42vmax; height: 42vmax; top: 28%; left: 38%; background: #be2f7a; opacity: 0.4; animation: mesh-3 20s ease-in-out infinite; }
+.theme-mesh i:nth-child(1) { width: 60vmax; height: 60vmax; top: -22%; left: -12%; background: var(--mesh-1); opacity: var(--mesh-1-o); animation: mesh-1 24s ease-in-out infinite; }
+.theme-mesh i:nth-child(2) { width: 50vmax; height: 50vmax; bottom: -20%; right: -8%; background: var(--mesh-2); opacity: var(--mesh-2-o); animation: mesh-2 28s ease-in-out infinite; }
+.theme-mesh i:nth-child(3) { width: 42vmax; height: 42vmax; top: 28%; left: 38%; background: var(--mesh-3); opacity: var(--mesh-3-o); animation: mesh-3 20s ease-in-out infinite; }
 @keyframes mesh-1 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(14%, 18%) scale(1.15); } }
 @keyframes mesh-2 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-18%, -10%) scale(1.2); } }
 @keyframes mesh-3 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-14%, 14%) scale(0.9); } }
 @media (max-width: 767px) { .theme-mesh i { filter: blur(60px); } }
 @media (prefers-reduced-motion: reduce) { .theme-mesh i { animation: none; } }
+
+/* 游標聚光燈（components/cursor-spotlight.tsx，僅電腦版）：排在 .theme-mesh 之後，畫在光暈上面、內容後面 */
+.cursor-spotlight {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  width: 720px;
+  height: 720px;
+  margin: -360px 0 0 -360px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 400ms ease;
+  background: radial-gradient(circle, var(--spot) 0%, transparent 65%);
+  will-change: transform;
+}
+
+/* 05 逐字浮現（components/fx.tsx 的 StaggerText）：每個字延遲不同時間，由下往上彈出 */
+.stagger-char {
+  display: inline-block;
+  animation: char-in 650ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes char-in {
+  from { opacity: 0; transform: translateY(0.7em); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 04 卡片傾斜（Tilt）：外層給透視，內層負責旋轉 */
+.tilt { perspective: 900px; }
+.tilt-inner { will-change: transform; }
+
+/* 06 磁性按鈕（Magnetic）：位移套在外包的元素上；離開範圍時彈回 */
+.magnetic-inner { transition: transform 320ms cubic-bezier(0.25, 1, 0.5, 1); will-change: transform; }
 
 /* 點擊光環：點到哪裡，那裡散開一圈淡淡的光（components/click-halo.tsx 建立元素） */
 .click-halo {
