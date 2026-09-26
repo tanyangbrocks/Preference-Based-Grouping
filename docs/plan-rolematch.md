@@ -308,7 +308,7 @@ assignments   -- 結算後寫入，之後不可再修改
 - **淺色背景漸層網格**：`.theme-mesh` 由「只有深色模式顯示」改成淺色／深色共用，顏色改由 `--mesh-*` CSS 變數決定。淺色版底色是 `#FFFBEA → #FBF3DC → #F4E8C2` 的斜向漸層，上面三顆模糊光球（略淺奶白、略深暖金、中間奶黃）緩慢漂移，全部維持奶油／金色系，卡片（`#EFE5C8`）才不會糊進背景。
 - **07 文字亂碼解密**：`ScrambleText`，組員頁「你被分配到」的職位名稱；每個瀏覽器只自動播放第一次（`localStorage` 的 `rm:revealed:{活動id}`），點名稱可重播。
 - **05 逐字浮現**：`StaggerText`，首頁標題。純 CSS（`.stagger-char`）。
-- **06 磁性按鈕**：`Magnetic`，首頁兩顆 CTA。只在 `(hover: hover) and (pointer: fine)` 啟用。
+- **06 磁性按鈕**：曾做成 `Magnetic` 套在首頁兩顆 CTA，使用者試過後決定不要（§十八），元件已刪除。
 - **02 數字計數**：`CountUp`，各處「已填人數」。進入畫面才開始，數值變動時接續滾動。
 - **04 卡片傾斜**：`Tilt`，活動列表卡、分配結果職位卡、「你被分配到」卡。表單與拖曳區不加。
 - **09 游標聚光燈**：`CursorSpotlight`（`src/components/cursor-spotlight.tsx`），**僅電腦版**——需要能 hover 的精確指標且寬度 ≥ 768px，手機／平板完全不渲染。
@@ -337,3 +337,11 @@ assignments   -- 結算後寫入，之後不可再修改
 - 選用：沒執行網站照常運作。`PgStore` 把 `RM001/RM002` 轉成 `SubmissionClosedError/ActivityFullError`，路由轉成 409 訊息；`FileStore` 在同一個序列化交易內做同樣檢查（兩份實作行為一致）。
 - `/api/health` 新增 `submissionGuard`（`installed`／`missing`／`not-applicable`），部署後可確認有沒有裝。
 - 驗證：PGlite 跑 18 個案例（安裝、重複執行、正常流程、RM001／RM002、不誤擋既有語句、外鍵／重名錯誤碼、還原）；FileStore 單元測試 +5 案（34→39）。並發鎖行為無法在本機測，見 checklist。
+
+---
+
+## 十八、封面按鈕移除磁性效果、活動列表頁籤改底線設計（2026-09-26）
+
+- **封面兩顆按鈕**：移除 `Magnetic`（元件、`.magnetic-inner` 樣式、相關註解），回到一般按鈕；標題逐字浮現保留。
+- **活動列表頁籤**：參考作品集右上角導覽列（`C:Portfoliosrccomponentssite-header.tsx`）的底線設計——只有選中的頁籤底下有一條 2px 細線（`bg-foreground`），切換時用 framer-motion 的 `layoutId="tab-underline"` 共用版面動畫，以彈簧（stiffness 380、damping 30，同作品集）滑到新頁籤底下；文字不加粗、不換底色，只是選中為前景色、未選中為柔和色。
+  取代原本的按鈕式頁籤（手機版膠囊按鈕、電腦版側欄色塊）。手機版橫排，外層有一條底線，細線疊在上面；電腦版仍在左側直排（使用者先前指定），細線在選中項目的文字下方上下滑動。兩個版本共用同一個 `UnderlineTabs` 元件，只有排列方式（className）不同。加了 `role="tablist"／tab` 與 `aria-selected`。

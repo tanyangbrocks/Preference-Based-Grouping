@@ -2,7 +2,7 @@
 
 import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Magnetic, StaggerText } from "@/components/fx";
+import { StaggerText } from "@/components/fx";
 import { RevealCard } from "@/components/motion";
 import { useViewport } from "@/lib/viewport";
 
@@ -55,16 +55,12 @@ function LandingPageCore() {
           <p className="text-sm text-muted">建立活動需要先用 Google 帳號登入</p>
         )}
         <div className="flex gap-3">
-          <Magnetic className="flex-1">
-            <button type="button" onClick={() => go("/activities")} className="btn btn-ghost w-full py-3">
-              查看已建立的活動
-            </button>
-          </Magnetic>
-          <Magnetic className="flex-1">
-            <button type="button" onClick={() => go("/create")} className="btn btn-primary w-full py-3">
-              建立活動
-            </button>
-          </Magnetic>
+          <button type="button" onClick={() => go("/activities")} className="btn btn-ghost flex-1 py-3">
+            查看已建立的活動
+          </button>
+          <button type="button" onClick={() => go("/create")} className="btn btn-primary flex-1 py-3">
+            建立活動
+          </button>
         </div>
       </RevealCard>
     </div>

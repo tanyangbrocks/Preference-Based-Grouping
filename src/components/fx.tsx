@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useFinePointer, useReducedMotion } from "@/lib/media";
 
-// 改寫自 C:\wp-tool\動畫特效 的純 JS 版本（02 數字計數、04 卡片傾斜、05 逐字浮現、06 磁性按鈕、07 文字亂碼），
-// 全部遵守：手機沒有游標的效果（傾斜、磁性）不啟用；系統開啟「減少動態效果」時直接顯示最終狀態。
+// 改寫自 C:\wp-tool\動畫特效 的純 JS 版本（02 數字計數、04 卡片傾斜、05 逐字浮現、07 文字亂碼），
+// 全部遵守：手機沒有游標的效果（傾斜）不啟用；系統開啟「減少動態效果」時直接顯示最終狀態。
 // 09 游標聚光燈是全站的，見 cursor-spotlight.tsx。
 
 // ---------------------------------------------------------------- 05 逐字浮現
@@ -196,77 +196,6 @@ export function Tilt({ children, max = 7, className }: { children: ReactNode; ma
   return (
     <div ref={outer} className={`tilt ${className ?? ""}`} onPointerMove={onMove} onPointerLeave={onLeave}>
       <div ref={inner} className="tilt-inner">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- 06 磁性按鈕
-
-/**
- * 游標靠近按鈕時，按鈕被「吸」向游標，離開後彈回。只在有滑鼠的裝置啟用。
- * 位移套在外包一層的元素上，按鈕自己的 hover 浮起／按下縮放不受影響；
- * 用「靜止的外層」量位置，避免位移後量到的中心點跟著跑造成抖動。
- * 用法：<Magnetic className="flex-1"><button className="btn w-full">…</button></Magnetic>
- */
-export function Magnetic({
-  children,
-  className,
-  strength = 0.35,
-  range = 70,
-  maxShift = 14,
-}: {
-  children: ReactNode;
-  className?: string;
-  strength?: number;
-  range?: number;
-  maxShift?: number;
-}) {
-  const fine = useFinePointer();
-  const reduced = useReducedMotion();
-  const enabled = fine && !reduced;
-  const outer = useRef<HTMLDivElement>(null);
-  const inner = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const o = outer.current;
-    const i = inner.current;
-    if (!enabled || !o || !i) return;
-    let raf = 0;
-    const reset = () => {
-      cancelAnimationFrame(raf);
-      i.style.transform = "";
-    };
-    const onMove = (e: PointerEvent) => {
-      if (e.pointerType !== "mouse") return;
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const r = o.getBoundingClientRect();
-        const dx = e.clientX - (r.left + r.width / 2);
-        const dy = e.clientY - (r.top + r.height / 2);
-        if (Math.abs(dx) > r.width / 2 + range || Math.abs(dy) > r.height / 2 + range) {
-          i.style.transform = "";
-          return;
-        }
-        const clamp = (v: number) => Math.max(-maxShift, Math.min(maxShift, v));
-        i.style.transform = `translate(${clamp(dx * strength).toFixed(1)}px, ${clamp(dy * strength).toFixed(1)}px)`;
-      });
-    };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    window.addEventListener("blur", reset);
-    document.documentElement.addEventListener("mouseleave", reset);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("blur", reset);
-      document.documentElement.removeEventListener("mouseleave", reset);
-      reset();
-    };
-  }, [enabled, strength, range, maxShift]);
-
-  return (
-    <div ref={outer} className={className}>
-      <div ref={inner} className="magnetic-inner">
         {children}
       </div>
     </div>

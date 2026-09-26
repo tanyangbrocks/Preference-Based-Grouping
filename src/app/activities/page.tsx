@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -65,10 +66,7 @@ function MobileMyActivitiesPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold text-accent">我的活動</h1>
-      <div className="flex gap-2">
-        <TabPill active={s.tab === "all"} onClick={() => s.setTab("all")}>所有活動</TabPill>
-        <TabPill active={s.tab === "favorites"} onClick={() => s.setTab("favorites")}>★ 我的最愛</TabPill>
-      </div>
+      <UnderlineTabs tab={s.tab} onChange={s.setTab} className="flex gap-6 border-b border-border" />
       <ListControls {...s} />
       <ActivityGroups {...s} />
     </div>
@@ -80,10 +78,7 @@ function DesktopMyActivitiesPage() {
   if (s.status !== "authenticated" || !s.rows) return <Loading error={s.error} />;
   return (
     <div className="grid grid-cols-[7rem_1fr] gap-5">
-      <nav className="flex flex-col gap-1.5 pt-1">
-        <SideTab active={s.tab === "all"} onClick={() => s.setTab("all")}>所有活動</SideTab>
-        <SideTab active={s.tab === "favorites"} onClick={() => s.setTab("favorites")}>★ 我的最愛</SideTab>
-      </nav>
+      <UnderlineTabs tab={s.tab} onChange={s.setTab} className="flex flex-col items-start gap-3 pt-2" />
       <div className="space-y-4">
         <h1 className="text-2xl font-semibold text-accent">我的活動</h1>
         <ListControls {...s} />
@@ -93,21 +88,35 @@ function DesktopMyActivitiesPage() {
   );
 }
 
-function TabPill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" onClick={onClick}
-      className={`btn ${active ? "btn-primary" : "btn-ghost"} flex-1`}>
-      {children}
-    </button>
-  );
-}
+const TABS: { id: Tab; label: string }[] = [
+  { id: "all", label: "所有活動" },
+  { id: "favorites", label: "★ 我的最愛" },
+];
 
-function SideTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+/**
+ * 頁籤：沿用作品集右上角導覽列的底線設計（C:\Portfolio\src\components\site-header.tsx）——
+ * 只有選中的頁籤底下有一條 2px 細線，切換時用 framer-motion 的 layoutId 共用版面動畫，
+ * 讓線條以彈簧動畫滑到新頁籤底下，文字本身不加粗、不換底色。
+ * 手機版橫排（外層加底線，細線疊在上面），電腦版直排在左側，排列方式由 className 決定。
+ */
+function UnderlineTabs({ tab, onChange, className }: { tab: Tab; onChange: (t: Tab) => void; className: string }) {
   return (
-    <button type="button" onClick={onClick}
-      className={`rounded-lg px-3 py-2 text-left text-sm ${active ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-field"}`}>
-      {children}
-    </button>
+    <nav role="tablist" aria-label="活動分類" className={className}>
+      {TABS.map((t) => {
+        const active = tab === t.id;
+        return (
+          <button key={t.id} type="button" role="tab" aria-selected={active} onClick={() => onChange(t.id)}
+            className={`tap-bounce relative pb-2 text-sm ${active ? "text-foreground" : "text-muted hover:text-foreground"}`}>
+            {t.label}
+            {active && (
+              <motion.span layoutId="tab-underline"
+                className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }} />
+            )}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 

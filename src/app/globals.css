@@ -114,8 +114,6 @@
 .tilt { perspective: 900px; }
 .tilt-inner { will-change: transform; }
 
-/* 06 磁性按鈕（Magnetic）：位移套在外包的元素上；離開範圍時彈回 */
-.magnetic-inner { transition: transform 320ms cubic-bezier(0.25, 1, 0.5, 1); will-change: transform; }
 
 /* 點擊光環：點到哪裡，那裡散開一圈淡淡的光（components/click-halo.tsx 建立元素） */
 .click-halo {

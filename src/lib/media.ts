@@ -21,7 +21,7 @@ const DESKTOP_POINTER = media("(hover: hover) and (pointer: fine) and (min-width
 
 const off = () => false;
 
-/** 有滑鼠類的精確指標（手機觸控為 false）——磁性按鈕、卡片傾斜只在這種裝置啟用 */
+/** 有滑鼠類的精確指標（手機觸控為 false）——卡片傾斜只在這種裝置啟用 */
 export const useFinePointer = () => useSyncExternalStore(FINE_POINTER.subscribe, FINE_POINTER.get, off);
 /** 系統開啟「減少動態效果」 */
 export const useReducedMotion = () => useSyncExternalStore(REDUCED_MOTION.subscribe, REDUCED_MOTION.get, off);
