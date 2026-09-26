@@ -17,22 +17,85 @@
   --shadow: 0 10px 24px -8px oklch(0.45 0.06 85 / 0.35);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #1a1813;
-    --surface: #25221a;
-    --field: #1f1c16;
-    --foreground: #f1ecdd;
-    --muted: #aaa28c;
-    --border: #3a3527;
-    --accent: #d9bf72;
-    --accent-soft: #3a3322;
-    --accent-fg: #1a1813;
-    --danger: #f2877f;
-    --warn-soft: #3d2f1c;
-    --shadow: 0 10px 24px -8px rgb(0 0 0 / 0.6);
-  }
+/* 深色：深藍黑底＋紫／洋紅／青綠柔光緩慢飄動（參考 C:\wp-tool\動畫特效\08_漸層網格背景），
+   卡片半透明＋毛玻璃，讓底下的光暈透出來。用 data-theme 切換（layout 的 head script 在畫面出現前就設好，不會閃一下淺色） */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0a0a12;
+  --surface: rgb(24 22 42 / 0.6);
+  --field: rgb(255 255 255 / 0.07);
+  --foreground: #f3f0ff;
+  --muted: #a9a4c4;
+  --border: rgb(255 255 255 / 0.14);
+  --accent: #b9a5ff;
+  --accent-soft: rgb(124 58 237 / 0.26);
+  --accent-fg: #0a0a12;
+  --danger: #ff8fa8;
+  --warn-soft: rgb(236 72 153 / 0.18);
+  --shadow: 0 12px 32px -8px rgb(124 58 237 / 0.5);
+  --halo: #c9b8ff;
 }
+
+:root { --halo: var(--accent); }
+
+:root[data-theme="dark"] .card {
+  backdrop-filter: blur(16px) saturate(1.25);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+}
+
+/* 深色模式的動態光暈背景（純 CSS，元素在 layout.tsx，淺色模式不顯示也不跑動畫） */
+.theme-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  display: none;
+  overflow: hidden;
+  pointer-events: none;
+  background: #0a0a12;
+}
+:root[data-theme="dark"] .theme-mesh { display: block; }
+.theme-mesh i {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.theme-mesh i:nth-child(1) { width: 60vmax; height: 60vmax; top: -22%; left: -12%; background: #6d28d9; animation: mesh-1 24s ease-in-out infinite; }
+.theme-mesh i:nth-child(2) { width: 50vmax; height: 50vmax; bottom: -20%; right: -8%; background: #0e9aa7; animation: mesh-2 28s ease-in-out infinite; }
+.theme-mesh i:nth-child(3) { width: 42vmax; height: 42vmax; top: 28%; left: 38%; background: #be2f7a; opacity: 0.4; animation: mesh-3 20s ease-in-out infinite; }
+@keyframes mesh-1 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(14%, 18%) scale(1.15); } }
+@keyframes mesh-2 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-18%, -10%) scale(1.2); } }
+@keyframes mesh-3 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-14%, 14%) scale(0.9); } }
+@media (max-width: 767px) { .theme-mesh i { filter: blur(60px); } }
+@media (prefers-reduced-motion: reduce) { .theme-mesh i { animation: none; } }
+
+/* 點擊光環：點到哪裡，那裡散開一圈淡淡的光（components/click-halo.tsx 建立元素） */
+.click-halo {
+  position: fixed;
+  z-index: 9999;
+  width: 140px;
+  height: 140px;
+  margin: -70px 0 0 -70px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, color-mix(in oklab, var(--halo) 45%, transparent) 0%, transparent 62%);
+  animation: halo-core 640ms ease-out forwards;
+}
+.click-halo::before,
+.click-halo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklab, var(--halo) 55%, transparent);
+  box-shadow: 0 0 14px color-mix(in oklab, var(--halo) 40%, transparent);
+  animation: halo-ring 720ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+.click-halo::after { border-width: 1px; animation-duration: 900ms; animation-delay: 90ms; opacity: 0; }
+@keyframes halo-core { 0% { transform: scale(0.25); opacity: 0.9; } 100% { transform: scale(1.1); opacity: 0; } }
+@keyframes halo-ring { 0% { transform: scale(0.12); opacity: 0.85; } 100% { transform: scale(1); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .click-halo { display: none; } }
 
 @theme inline {
   --color-background: var(--background);

@@ -38,7 +38,7 @@ export function AccountButton() {
         <>
           <button type="button" className="fixed inset-0 z-10 cursor-default" aria-label="關閉選單"
             onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-2 w-44 rounded-xl border border-border bg-surface p-2 shadow-lg">
+          <div className="absolute right-0 z-20 mt-2 w-44 rounded-xl border border-border bg-surface p-2 shadow-lg backdrop-blur-xl">
             <p className="truncate px-2 py-1 text-xs text-muted">{session.user.name ?? session.user.email}</p>
             <button type="button" onClick={() => signOut({ callbackUrl: "/" })}
               className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-accent-soft">

@@ -291,3 +291,12 @@ assignments   -- 結算後寫入，之後不可再修改
 依 `docs/plan-slots-and-accounts.md` 實作，細節與設定步驟見該文件與 `docs/setup-google-login.md`。
 與先前版本的差異：**建立活動現在必須登入 Google**（組員填寫仍完全不用登入）；主辦方後台可用登入帳號進入，不再只能靠權杖連結；
 志願排序 UI 從「單一可排序清單」改成「固定編號插槽＋拖曳互換＋磁吸動畫」。
+
+---
+
+## 十四、深淺色模式、點擊光環、動畫特效評估（v0.9，2026-09-26）
+
+- **深淺色切換**：header 右側新增太陽／月亮按鈕（`src/components/theme-toggle.tsx`），手機版與電腦版共用同一個 header，所以兩端都有。主題存在 `<html data-theme>`，選擇存 `localStorage.theme`；沒選過就跟隨系統偏好。`layout.tsx` 的 `<head>` 內嵌一小段 script 在第一次繪製前就設好 `data-theme`，避免深色使用者先閃一下淺色。
+- **深色風格**：極深底色（`#0a0a12`）＋三顆模糊光球（紫／青／洋紅）緩慢漂移的 `.theme-mesh` 背景，卡片改成半透明玻璃（`backdrop-filter`），文字為偏白的淡紫。淺色模式維持原本作品集風格不動。光球手機半徑降低、`prefers-reduced-motion` 時停止漂移。
+- **點擊光環**：`src/components/click-halo.tsx` 在全站任何點擊位置產生一個柔和光暈＋兩圈擴散環（樣式在 `globals.css` 的 `.click-halo`），1.1 秒後移除。參考 PBC 專案的點擊特效但去掉十字光芒，避免干擾表單閱讀；鍵盤觸發的 click 與「減少動態效果」設定下不顯示。光環顏色跟隨主題（`--halo`）。
+- **動畫特效評估**：見 [analysis-wp-tool-animations.md](analysis-wp-tool-animations.md)。結論：08（漸層網格）已採用；01 已有；07（亂碼解密，公布結果用）最推薦；05／06 適合首頁；03／10 不適合。
