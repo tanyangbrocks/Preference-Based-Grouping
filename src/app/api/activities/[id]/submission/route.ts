@@ -1,5 +1,5 @@
 import { validatePrefs, type Pref } from "@/lib/assign";
-import { getStore, NameTakenError } from "@/lib/store";
+import { ActivityFullError, getStore, NameTakenError, SubmissionClosedError } from "@/lib/store";
 import {
   errorResponse,
   HttpError,
@@ -11,6 +11,15 @@ import {
 } from "@/lib/service";
 
 export const dynamic = "force-dynamic";
+
+// 資料庫層（Postgres trigger／FileStore 的同一個交易）擋下的情況：路由前面的檢查是「先讀再寫」，
+// 兩者之間如果主辦方剛好按了分組或有人搶走最後名額，會在這裡被擋下，回給使用者看得懂的訊息
+function storeRefusal(e: unknown): never {
+  if (e instanceof SubmissionClosedError) throw new HttpError(409, "主辦方已經執行分組，無法再修改");
+  if (e instanceof ActivityFullError) throw new HttpError(409, "名額已滿，無法再加入");
+  if (e instanceof NameTakenError) throw new HttpError(409, "這個名字已經有人使用，請換一個");
+  throw e;
+}
 
 // 讀取自己的填寫（與結算後自己的分配結果）
 export async function GET(req: Request, ctx: RouteContext<"/api/activities/[id]/submission">) {
@@ -49,7 +58,7 @@ export async function PUT(req: Request, ctx: RouteContext<"/api/activities/[id]/
     const token = req.headers.get("x-member-token");
     const existing = token ? await store.getSubmissionByToken(id, sha256(token)) : null;
     if (existing) {
-      await store.updateSubmissionPrefs(existing.id, prefs);
+      await store.updateSubmissionPrefs(existing.id, prefs).catch(storeRefusal);
       return Response.json({ ok: true });
     }
 
@@ -61,8 +70,8 @@ export async function PUT(req: Request, ctx: RouteContext<"/api/activities/[id]/
 
     const newTok = newToken();
     const now = new Date().toISOString();
-    try {
-      await store.insertSubmission({
+    await store
+      .insertSubmission({
         id: newId(),
         activityId: id,
         displayName,
@@ -70,11 +79,8 @@ export async function PUT(req: Request, ctx: RouteContext<"/api/activities/[id]/
         prefs,
         createdAt: now,
         updatedAt: now,
-      });
-    } catch (e) {
-      if (e instanceof NameTakenError) throw new HttpError(409, "這個名字已經有人使用，請換一個");
-      throw e;
-    }
+      })
+      .catch(storeRefusal);
     return Response.json({ ok: true, memberToken: newTok }, { status: 201 });
   } catch (e) {
     return errorResponse(e);

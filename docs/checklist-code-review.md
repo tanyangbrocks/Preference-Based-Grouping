@@ -98,15 +98,15 @@
 回歸測試在 `src/lib/assign.test.ts`（"勾選多個職位時的搶奪也要記錄" 那一案）跟
 `src/lib/activity-input.test.ts`。
 
-## 已知但還沒修的（2026-09-26 複查時發現）
+## 已知的競態（2026-09-26 複查時發現）
 
-這些是照 B 的第一條（先讀、再判斷、再寫）找到的競態，窗口都很小（要兩個人在幾十毫秒內同時操作），
-而且修法需要改 Postgres 的 SQL，本機沒有 Postgres 可以實際跑，所以先記錄、不冒險改：
+照 B 的第一條（先讀、再判斷、再寫）找到的競態，窗口都只有幾十毫秒（要兩個人同時操作）：
 
-- 組員「儲存志願」跟主辦方「執行分組」同時發生：`submission` PUT 是先讀 `status === "open"`、再 INSERT／UPDATE，
-  中間如果 `claimFinalize` 搶到鎖，這份志願會被存進資料庫但不在分組結果裡（組員看到「儲存成功」、結果卻沒有自己）。
-  修法：把 `status = 'open'` 放進 INSERT／UPDATE 同一條語句（`INSERT ... SELECT ... WHERE EXISTS(...)`，
-  注意 SELECT 清單裡的參數要明確 `::jsonb`／`::timestamptz`），用回傳列數判斷。
-- 名額上限：`countSubmissions >= capacity` 之後才 INSERT，兩個人同時送出最後一個名額可以都成功（會多一人）。
-- 主辦方 PATCH：讀 `count` 之後到 `updateActivity` 之間如果又有人送出，「人數上限不可少於已填人數」的檢查可能已過期。
-- `myActivitiesView` 對每個活動各查一次 `countSubmissions`（N+1）；活動數多時可以改成一條 `GROUP BY`。
+- ✅ **已處理（需執行一次 SQL）**：組員「儲存志願」跟主辦方「執行分組」同時發生 → 志願存進去卻不在結果裡；
+  兩人同時搶最後一個名額 → 多出一人。修法是資料庫層 trigger（`docs/sql/harden-submissions.sql`，
+  安裝步驟見 `docs/sql/README.md`）；沒執行前行為跟以前一樣。`/api/health` 的 `submissionGuard` 會顯示有沒有裝。
+  Postgres 那份 SQL 用 PGlite（WASM 版 Postgres）驗證過邏輯；**鎖的並發行為本機無法測**（PGlite 只有單一連線），
+  是依 Postgres 的列鎖語意（`FOR UPDATE` 與 `UPDATE` 互斥）設計的。
+- ⏳ 主辦方 PATCH：讀 `count` 之後到 `updateActivity` 之間如果又有人送出，「人數上限不可少於已填人數」的檢查可能已過期。
+  （名額 trigger 裝好後，之後的新增會照新的名額擋；影響只剩「剛好多出的那一人」。）
+- ⏳ `myActivitiesView` 對每個活動各查一次 `countSubmissions`（N+1）；活動數多時可以改成一條 `GROUP BY`。

@@ -63,6 +63,13 @@ export interface SubmissionRow {
 }
 
 export class NameTakenError extends Error {}
+/** 活動已不接受填寫（已執行分組或正在分組）；對應資料庫 trigger 的錯誤碼 RM001 */
+export class SubmissionClosedError extends Error {}
+/** 名額已滿；對應資料庫 trigger 的錯誤碼 RM002 */
+export class ActivityFullError extends Error {}
+
+const capacityOf = (a: ActivityRow) => a.roles.reduce((s, r) => s + r.capacity, 0);
+const dbCode = (e: unknown) => (e as { code?: string }).code;
 
 export interface Store {
   createActivity(a: ActivityRow): Promise<void>;
@@ -70,7 +77,13 @@ export interface Store {
   countSubmissions(activityId: string): Promise<number>;
   listSubmissions(activityId: string): Promise<SubmissionRow[]>;
   getSubmissionByToken(activityId: string, tokenHash: string): Promise<SubmissionRow | null>;
-  insertSubmission(s: SubmissionRow): Promise<void>; // 重名丟 NameTakenError
+  /**
+   * 活動不是 open → SubmissionClosedError；名額已滿 → ActivityFullError；重名 → NameTakenError。
+   * Postgres 由 docs/sql/harden-submissions.sql 的 trigger 在資料庫層保證（跟「執行分組」用同一把列鎖，
+   * 沒有先讀後寫的空隙）；沒安裝 trigger 時只剩路由層的檢查。FileStore 在同一個序列化交易內做同樣的檢查。
+   */
+  insertSubmission(s: SubmissionRow): Promise<void>;
+  /** 活動不是 open → SubmissionClosedError（同上） */
   updateSubmissionPrefs(id: string, prefs: Pref[]): Promise<void>;
   /** open → finalizing（或搶回卡住超過 60 秒的 finalizing）。搶到回 true */
   claimFinalize(activityId: string): Promise<boolean>;
@@ -79,6 +92,8 @@ export interface Store {
   updateActivity(id: string, edit: ActivityEdit, resetSubmissions: boolean): Promise<boolean>;
   /** 健康檢查：確認連得上 */
   ping(): Promise<void>;
+  /** 資料庫層防護 trigger（docs/sql/harden-submissions.sql）是否已安裝；本機檔案資料庫沒有這個概念，回 null */
+  guardInstalled(): Promise<boolean | null>;
 
   // ---- 主辦方帳號（「我的活動」列表）----
   /** 某個帳號建立的所有活動（含已封存的；由呼叫端決定要不要過濾），依建立時間新到舊排序 */
@@ -249,14 +264,28 @@ class PgStore implements Store {
         VALUES (${s.id}, ${s.activityId}, ${s.displayName}, ${s.memberTokenHash}, ${JSON.stringify(s.prefs)},
                 ${s.createdAt}, ${s.createdAt})`;
     } catch (e) {
-      if ((e as { code?: string }).code === "23505") throw new NameTakenError();
+      const code = dbCode(e);
+      if (code === "RM001") throw new SubmissionClosedError();
+      if (code === "RM002") throw new ActivityFullError();
+      if (code === "23505") throw new NameTakenError();
       throw e;
     }
   }
 
   async updateSubmissionPrefs(id: string, prefs: Pref[]) {
     await this.ensure();
-    await this.sql`UPDATE submissions SET prefs = ${JSON.stringify(prefs)}, updated_at = now() WHERE id = ${id}`;
+    try {
+      await this.sql`UPDATE submissions SET prefs = ${JSON.stringify(prefs)}, updated_at = now() WHERE id = ${id}`;
+    } catch (e) {
+      if (dbCode(e) === "RM001") throw new SubmissionClosedError();
+      throw e;
+    }
+  }
+
+  async guardInstalled() {
+    await this.ensure();
+    const rows = await this.sql`SELECT 1 FROM pg_trigger WHERE tgname = 'rolematch_guard_submission' AND NOT tgisinternal`;
+    return rows.length > 0;
   }
 
   async claimFinalize(activityId: string) {
@@ -389,6 +418,13 @@ class FileStore implements Store {
   }
   insertSubmission(s: SubmissionRow) {
     return this.tx((db) => {
+      // 檢查順序跟 Postgres trigger 一樣：先「是否開放」、再「名額」，最後才是重名
+      const a = db.activities[s.activityId];
+      if (a) {
+        if (a.status !== "open") throw new SubmissionClosedError();
+        if (db.submissions.filter((x) => x.activityId === s.activityId).length >= capacityOf(a))
+          throw new ActivityFullError();
+      }
       if (db.submissions.some((x) => x.activityId === s.activityId && x.displayName === s.displayName))
         throw new NameTakenError();
       db.submissions.push(s);
@@ -398,6 +434,7 @@ class FileStore implements Store {
     return this.tx((db) => {
       const s = db.submissions.find((x) => x.id === id);
       if (s) {
+        if (db.activities[s.activityId]?.status !== "open") throw new SubmissionClosedError();
         s.prefs = prefs;
         s.updatedAt = new Date().toISOString();
       }
@@ -424,6 +461,9 @@ class FileStore implements Store {
     }, true);
   }
   async ping() {}
+  async guardInstalled() {
+    return null;
+  }
   saveResult(activityId: string, result: Assignment[], effectiveK: number, events: AssignEvent[]) {
     return this.tx((db) => {
       const a = db.activities[activityId];

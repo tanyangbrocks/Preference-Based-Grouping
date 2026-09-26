@@ -24,8 +24,17 @@ export async function GET() {
     );
   }
   try {
-    await getStore().ping();
-    return Response.json({ ok: auth.auth === "configured" || !process.env.VERCEL, database: configured ? "postgres" : "local-file", ...auth });
+    const store = getStore();
+    await store.ping();
+    // 資料庫層防護（選用）：沒裝也能運作，只是少一層保險，見 docs/sql/harden-submissions.sql
+    const guard = await store.guardInstalled();
+    return Response.json({
+      ok: auth.auth === "configured" || !process.env.VERCEL,
+      database: configured ? "postgres" : "local-file",
+      ...auth,
+      submissionGuard: guard === null ? "not-applicable" : guard ? "installed" : "missing",
+      ...(guard === false && { submissionGuardHint: "選用：到 Neon SQL Editor 執行 docs/sql/harden-submissions.sql" }),
+    });
   } catch (e) {
     return Response.json(
       { ok: false, database: "unreachable", ...auth, error: String((e as Error)?.message ?? e).slice(0, 200) },

@@ -326,3 +326,14 @@ assignments   -- 結算後寫入，之後不可再修改
 - 回歸測試 `src/lib/finalize.test.ts`（4 案，用真的 FileStore 導到暫存資料夾）；也用 dev server 實測過「過期 finalizing → 200 finalized」。
 - 授權邊界複查（不帶 cookie）：建立／我的活動／刪除 → 401；host 後台／分組 → 403；都符合預期。
 - 沒修、只記錄的競態與效能問題見 `docs/checklist-code-review.md` 最後一節。
+
+---
+
+## 十七、填寫志願的資料庫層護欄（2026-09-26）
+
+§十六 記錄的兩個競態（儲存志願 vs 執行分組、名額搶最後一格）用 Postgres trigger 解決：
+
+- `docs/sql/harden-submissions.sql`：`submissions` 表 `BEFORE INSERT OR UPDATE OF prefs` trigger，先 `SELECT … FOR UPDATE` 鎖活動那一列（跟 `claimFinalize` 的 `UPDATE` 互斥），再檢查 `status = 'open'`（否則 `RM001`）與名額（僅 INSERT，否則 `RM002`）。附還原檔與 `docs/sql/README.md`（輸入位置與步驟）。
+- 選用：沒執行網站照常運作。`PgStore` 把 `RM001/RM002` 轉成 `SubmissionClosedError/ActivityFullError`，路由轉成 409 訊息；`FileStore` 在同一個序列化交易內做同樣檢查（兩份實作行為一致）。
+- `/api/health` 新增 `submissionGuard`（`installed`／`missing`／`not-applicable`），部署後可確認有沒有裝。
+- 驗證：PGlite 跑 18 個案例（安裝、重複執行、正常流程、RM001／RM002、不誤擋既有語句、外鍵／重名錯誤碼、還原）；FileStore 單元測試 +5 案（34→39）。並發鎖行為無法在本機測，見 checklist。
